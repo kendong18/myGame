@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>밤의 생존자 - Night Survivors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <!-- 타이틀 -->
+  <section id="screen-title" class="screen">
+    <div class="title-box">
+      <h1 class="logo">NIGHT<br>SURVIVORS</h1>
+      <p class="subtitle">밤의 생존자</p>
+      <div class="menu">
+        <button class="btn primary" data-action="goto-select">게임 시작</button>
+        <button class="btn" data-action="goto-shop">강화 상점</button>
+        <button class="btn" data-action="goto-howto">게임 방법</button>
+        <button class="btn" data-action="goto-settings">설정</button>
+      </div>
+      <div class="title-info">
+        <div class="gold-chip">💰 <span id="title-gold">0</span></div>
+        <div id="title-best" class="best"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 캐릭터 선택 -->
+  <section id="screen-select" class="screen">
+    <div class="panel wide">
+      <h2>캐릭터 선택</h2>
+      <div id="char-list" class="char-grid"></div>
+      <div class="row">
+        <button class="btn" data-action="goto-title">뒤로</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 상점 -->
+  <section id="screen-shop" class="screen">
+    <div class="panel wide">
+      <h2>강화 상점</h2>
+      <p class="hint">모은 골드로 영구 능력치를 올릴 수 있습니다.</p>
+      <div class="gold-chip big">💰 <span id="shop-gold">0</span></div>
+      <div id="shop-list" class="shop-grid"></div>
+      <div class="row">
+        <button class="btn" data-action="shop-refund">전체 환불</button>
+        <button class="btn" data-action="goto-title">뒤로</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 게임 방법 -->
+  <section id="screen-howto" class="screen">
+    <div class="panel">
+      <h2>게임 방법</h2>
+      <ul class="howto">
+        <li><b>이동</b> : WASD 또는 방향키 (모바일: 화면 드래그)</li>
+        <li><b>공격</b> : 무기가 자동으로 공격합니다. 피하는 것에 집중하세요!</li>
+        <li><b>경험치</b> : 적이 떨어뜨린 보석을 모아 레벨업하세요.</li>
+        <li><b>레벨업</b> : 새 무기, 무기 강화, 패시브 아이템 중 하나를 고릅니다. (숫자키 1~4)</li>
+        <li><b>진화</b> : 무기를 최대 레벨(8)로 만들고 짝이 되는 패시브를 가진 상태로 보물상자를 열면 무기가 진화합니다.</li>
+        <li><b>보물상자</b> : 엘리트 몬스터와 보스가 떨어뜨립니다.</li>
+        <li><b>화로</b> : 맵의 화로를 부수면 치킨, 자석, 골드 등이 나옵니다.</li>
+        <li><b>목표</b> : 10분을 버티면 마왕이 등장합니다. 마왕을 쓰러뜨리면 승리!</li>
+        <li><b>일시정지</b> : ESC 또는 P</li>
+      </ul>
+      <div class="row"><button class="btn" data-action="goto-title">뒤로</button></div>
+    </div>
+  </section>
+
+  <!-- 설정 -->
+  <section id="screen-settings" class="screen">
+    <div class="panel">
+      <h2>설정</h2>
+      <div id="settings-list" class="settings"></div>
+      <div class="row"><button class="btn" data-action="settings-back">뒤로</button></div>
+    </div>
+  </section>
+
+  <!-- 레벨업 -->
+  <section id="screen-levelup" class="screen overlay">
+    <div class="panel levelup-panel">
+      <h2 class="glow">LEVEL UP!</h2>
+      <div id="levelup-choices" class="choices"></div>
+      <p class="hint">클릭 또는 숫자키 1~4로 선택</p>
+    </div>
+  </section>
+
+  <!-- 보물상자 -->
+  <section id="screen-chest" class="screen overlay">
+    <div class="panel chest-panel">
+      <h2 class="glow gold">보물상자!</h2>
+      <div id="chest-rewards" class="chest-rewards"></div>
+      <div class="row"><button class="btn primary" data-action="chest-ok">확인 (Enter)</button></div>
+    </div>
+  </section>
+
+  <!-- 일시정지 -->
+  <section id="screen-pause" class="screen overlay">
+    <div class="panel wide">
+      <h2>일시정지</h2>
+      <div class="pause-cols">
+        <div>
+          <h3>무기 / 아이템</h3>
+          <div id="pause-items" class="pause-items"></div>
+        </div>
+        <div>
+          <h3>능력치</h3>
+          <div id="pause-stats" class="pause-stats"></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn primary" data-action="resume">계속하기</button>
+        <button class="btn" data-action="pause-settings">설정</button>
+        <button class="btn danger" data-action="quit">포기하기</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 결과 -->
+  <section id="screen-gameover" class="screen overlay">
+    <div class="panel wide">
+      <h2 id="result-title">사망했습니다</h2>
+      <div id="result-summary" class="result-summary"></div>
+      <table id="result-weapons" class="result-table"></table>
+      <div class="row">
+        <button class="btn primary" data-action="retry">다시 하기</button>
+        <button class="btn" data-action="goto-title">메인 메뉴</button>
+      </div>
+    </div>
+  </section>
+
+  <button id="pause-btn" class="pause-btn hidden" data-action="pause" aria-label="일시정지">II</button>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/data.js"></script>
+<script src="js/save.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/spawner.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
