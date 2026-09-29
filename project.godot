@@ -12,9 +12,14 @@ config_version=5
 
 config/name="Night Survivors"
 config/description="뱀파이어 서바이버 스타일 생존 액션 게임"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[autoload]
+
+SaveData="*res://scripts/save_data.gd"
+Sfx="*res://scripts/sfx.gd"
 
 [display]
 

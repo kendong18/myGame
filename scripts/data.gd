@@ -255,6 +255,82 @@ const EVENTS := [
 ]
 
 
+# ── 캐릭터 ──────────────────────────────────
+# bonus: 플레이어 스탯에 더해지는 값 / cost: 해금 비용(0이면 처음부터 사용 가능)
+# palette: 캐릭터 색상 (cloth 옷, cloth_dark 옷 그늘, hair 머리카락)
+const CHARACTERS := [
+	{
+		"id": "knight", "name": "기사 레온", "weapon": "whip", "cost": 0,
+		"desc": "최대 체력 +20%, 방어 +1",
+		"bonus": {"max_hp_mul": 0.2, "armor": 1.0},
+		"palette": {"cloth": Color(0.36, 0.48, 0.72), "cloth_dark": Color(0.24, 0.32, 0.52), "hair": Color(0.55, 0.35, 0.17)},
+	},
+	{
+		"id": "mage", "name": "마법사 루나", "weapon": "wand", "cost": 0,
+		"desc": "쿨타임 -10%, 경험치 +10%",
+		"bonus": {"cooldown": -0.1, "growth": 0.1},
+		"palette": {"cloth": Color(0.5, 0.25, 0.72), "cloth_dark": Color(0.32, 0.15, 0.5), "hair": Color(0.95, 0.82, 0.35)},
+	},
+	{
+		"id": "hunter", "name": "사냥꾼 카인", "weapon": "knife", "cost": 300,
+		"desc": "이동 속도 +20%, 투사체 속도 +10%",
+		"bonus": {"move_speed": 0.2, "proj_speed": 0.1},
+		"palette": {"cloth": Color(0.25, 0.56, 0.3), "cloth_dark": Color(0.16, 0.38, 0.2), "hair": Color(0.15, 0.15, 0.17)},
+	},
+	{
+		"id": "priest", "name": "성직자 세라", "weapon": "garlic", "cost": 500,
+		"desc": "초당 체력 회복 +0.5, 범위 +10%",
+		"bonus": {"recovery": 0.5, "area": 0.1},
+		"palette": {"cloth": Color(0.92, 0.92, 0.96), "cloth_dark": Color(0.68, 0.68, 0.78), "hair": Color(0.88, 0.48, 0.18)},
+	},
+	{
+		"id": "warrior", "name": "전사 브란", "weapon": "axe", "cost": 800,
+		"desc": "공격력 +20%, 이동 속도 -10%",
+		"bonus": {"might": 0.2, "move_speed": -0.1},
+		"palette": {"cloth": Color(0.6, 0.24, 0.18), "cloth_dark": Color(0.4, 0.14, 0.1), "hair": Color(0.75, 0.2, 0.12)},
+	},
+	{
+		"id": "sage", "name": "현자 오린", "weapon": "lightning", "cost": 1200,
+		"desc": "행운 +20%, 획득 범위 +30%",
+		"bonus": {"luck": 0.2, "magnet": 0.3},
+		"palette": {"cloth": Color(0.16, 0.29, 0.55), "cloth_dark": Color(0.1, 0.17, 0.33), "hair": Color(0.85, 0.85, 0.92)},
+	},
+]
+
+# ── 영구 강화 상점 ───────────────────────────
+# 가격 = cost × (현재 단계 + 1)
+const SHOP := [
+	{"id": "might", "name": "힘", "desc": "공격력 +5%", "max": 5, "cost": 150, "stat": "might", "per": 0.05},
+	{"id": "armor", "name": "방어", "desc": "받는 피해 -1", "max": 3, "cost": 400, "stat": "armor", "per": 1.0},
+	{"id": "maxhp", "name": "최대 체력", "desc": "최대 체력 +10%", "max": 3, "cost": 150, "stat": "max_hp_mul", "per": 0.1},
+	{"id": "recovery", "name": "회복", "desc": "초당 회복 +0.1", "max": 5, "cost": 120, "stat": "recovery", "per": 0.1},
+	{"id": "cooldown", "name": "쿨타임", "desc": "쿨타임 -2.5%", "max": 2, "cost": 600, "stat": "cooldown", "per": -0.025},
+	{"id": "area", "name": "범위", "desc": "공격 범위 +5%", "max": 2, "cost": 200, "stat": "area", "per": 0.05},
+	{"id": "speed", "name": "이동 속도", "desc": "이동 속도 +5%", "max": 2, "cost": 200, "stat": "move_speed", "per": 0.05},
+	{"id": "magnet", "name": "자력", "desc": "획득 범위 +25%", "max": 2, "cost": 200, "stat": "magnet", "per": 0.25},
+	{"id": "growth", "name": "성장", "desc": "경험치 +3%", "max": 5, "cost": 600, "stat": "growth", "per": 0.03},
+	{"id": "greed", "name": "탐욕", "desc": "골드 획득 +10%", "max": 5, "cost": 150, "stat": "greed", "per": 0.1},
+	{"id": "luck", "name": "행운", "desc": "행운 +10%", "max": 3, "cost": 400, "stat": "luck", "per": 0.1},
+	{"id": "revival", "name": "부활", "desc": "사망 시 1회 부활", "max": 1, "cost": 1000, "stat": "revival", "per": 1.0},
+]
+
+
+static func character(id: String) -> Dictionary:
+	for c: Dictionary in CHARACTERS:
+		if c.id == id:
+			return c
+	return CHARACTERS[0]
+
+
+static func shop_cost(item: Dictionary, level: int) -> int:
+	return int(item.cost) * (level + 1)
+
+
+## 한 판이 끝났을 때 받는 골드: 주운 동전 + 처치 수 + 생존 시간 + 승리 보너스
+static func run_reward(coins: int, kills: int, time: float, won: bool) -> int:
+	return coins + int(kills / 5.0) + int(time / 60.0) * 15 + (500 if won else 0)
+
+
 static func wave_for(time: float) -> Dictionary:
 	return WAVES[mini(WAVES.size() - 1, int(time / 60.0))]
 

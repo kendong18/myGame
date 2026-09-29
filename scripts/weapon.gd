@@ -170,6 +170,7 @@ func _fire_whip(idx: int) -> void:
 		g.heal_player(float(mini(hits, 8)))
 	var col := Color(1.0, 0.35, 0.4) if is_evolved() else Color(1.0, 1.0, 1.0)
 	g.add_fx(Fx.slash(center, length, height, side, col))
+	Sfx.play("whip", 0.08)
 
 
 func _fire_wand(idx: int) -> void:
@@ -193,6 +194,7 @@ func _fire_wand(idx: int) -> void:
 	pr.color = Color(1.0, 0.88, 0.4) if is_evolved() else Color(0.48, 0.85, 1.0)
 	pr.kb = 0.6
 	g.add_projectile(pr)
+	Sfx.play("shoot", 0.1)
 
 
 func _fire_knife(idx: int) -> void:
@@ -205,6 +207,7 @@ func _fire_knife(idx: int) -> void:
 		_dmg(), int(s.pierce), _dur(), 6.0, self)
 	pr.kb = 0.4
 	g.add_projectile(pr)
+	Sfx.play("shoot", 0.15)
 
 
 func _fire_axe(idx: int) -> void:
@@ -218,6 +221,7 @@ func _fire_axe(idx: int) -> void:
 	pr.kb = 0.8
 	pr.hit_interval = 0.4
 	g.add_projectile(pr)
+	Sfx.play("shoot", 0.1)
 
 
 func _fire_spiral(idx: int) -> void:
@@ -230,6 +234,8 @@ func _fire_spiral(idx: int) -> void:
 	pr.hit_interval = 0.5
 	pr.kb = 0.8
 	g.add_projectile(pr)
+	if idx == 0:
+		Sfx.play("whip")
 
 
 func _fire_zone() -> void:
@@ -265,6 +271,7 @@ func _fire_lightning() -> void:
 			g.damage_enemy(t, dmg, self, (t.position - pos).normalized(), 0.3)
 	g.hit_props(pos, r)
 	g.shake(2.0, 0.08)
+	Sfx.play("thunder", 0.1)
 
 
 # ─────────────────────────────────────────────

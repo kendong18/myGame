@@ -5,6 +5,7 @@ extends CanvasLayer
 signal choice_selected(index: int)
 signal restart_pressed
 signal resume_pressed
+signal menu_pressed
 signal chest_closed
 
 var _root: Control
@@ -17,6 +18,8 @@ var _hp_label: Label
 var _inv_label: Label
 var _banner: Label
 var _banner_t := 0.0
+var _vignette: TextureRect
+var _vignette_a := 0.0
 
 var _boss_box: Control
 var _boss_name: Label
@@ -42,8 +45,9 @@ func _ready() -> void:
 	_root = Control.new()
 	_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.theme = _make_theme()
+	_root.theme = UiTheme.get_theme()
 	add_child(_root)
+	_build_vignette()
 	_build_top_bar()
 	_build_boss_bar()
 	_build_levelup()
@@ -52,46 +56,41 @@ func _ready() -> void:
 	_build_gameover()
 
 
-func _make_theme() -> Theme:
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray(["Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Apple SD Gothic Neo", "sans-serif"])
-	var th := Theme.new()
-	th.default_font = font
-	th.default_font_size = 18
-
-	var normal := _box(Color(0.2, 0.15, 0.36), Color(0.36, 0.29, 0.54), 8)
-	var hover := _box(Color(0.32, 0.24, 0.5), Color(1.0, 0.8, 0.3), 8)
-	var pressed := _box(Color(0.14, 0.1, 0.26), Color(1.0, 0.8, 0.3), 8)
-	th.set_stylebox("normal", "Button", normal)
-	th.set_stylebox("hover", "Button", hover)
-	th.set_stylebox("pressed", "Button", pressed)
-	th.set_stylebox("focus", "Button", _box(Color(0, 0, 0, 0), Color(1.0, 0.8, 0.3), 8, 3))
-	th.set_color("font_color", "Button", Color(0.95, 0.93, 1.0))
-	th.set_color("font_hover_color", "Button", Color(1, 1, 1))
-	return th
-
-
-func _box(bg: Color, border: Color, radius: int, border_w: int = 2) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.border_color = border
-	sb.set_border_width_all(border_w)
-	sb.set_corner_radius_all(radius)
-	sb.content_margin_left = 16
-	sb.content_margin_right = 16
-	sb.content_margin_top = 10
-	sb.content_margin_bottom = 10
-	return sb
-
-
 func _label(text: String, size: int, color: Color = Color.WHITE) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_color", color)
-	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	l.add_theme_constant_override("outline_size", 4)
-	return l
+	return UiTheme.label(text, size, color)
+
+
+func _button(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 46)
+	b.pressed.connect(func() -> void:
+		Sfx.play("click")
+		on_press.call())
+	return b
+
+
+## 피격 시 화면 가장자리가 붉게 번쩍이는 효과
+func _build_vignette() -> void:
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.8, 0.0, 0.05, 0.0))
+	grad.set_color(1, Color(0.8, 0.0, 0.05, 0.75))
+	grad.set_offset(0, 0.55)
+	grad.set_offset(1, 1.0)
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 256
+	tex.height = 144
+	_vignette = TextureRect.new()
+	_vignette.texture = tex
+	_vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_vignette.stretch_mode = TextureRect.STRETCH_SCALE
+	_vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_vignette.modulate.a = 0.0
+	_root.add_child(_vignette)
 
 
 func _build_top_bar() -> void:
@@ -210,28 +209,9 @@ func _make_overlay(dim: float = 0.6) -> Control:
 	return o
 
 
-func _make_panel(parent: Control, width: float) -> VBoxContainer:
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	parent.add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(width, 0)
-	var sb := _box(Color(0.08, 0.06, 0.16, 0.96), Color(0.36, 0.29, 0.54), 14, 3)
-	sb.content_margin_left = 28
-	sb.content_margin_right = 28
-	sb.content_margin_top = 22
-	sb.content_margin_bottom = 22
-	panel.add_theme_stylebox_override("panel", sb)
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	panel.add_child(box)
-	return box
-
-
 func _build_levelup() -> void:
 	_levelup_overlay = _make_overlay(0.55)
-	var box := _make_panel(_levelup_overlay, 620)
+	var box := UiTheme.centered_panel(_levelup_overlay, 620)
 	var title := _label("LEVEL UP!", 34, Color(1, 0.88, 0.5))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
@@ -240,7 +220,7 @@ func _build_levelup() -> void:
 		b.custom_minimum_size = Vector2(0, 76)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.add_theme_font_size_override("font_size", 19)
-		b.pressed.connect(_on_choice.bind(i))
+		b.pressed.connect(func() -> void: choice_selected.emit(i))
 		box.add_child(b)
 		_choice_buttons.append(b)
 	var hint := _label("클릭 또는 숫자키 1~3으로 선택", 14, Color(0.7, 0.66, 0.85))
@@ -250,49 +230,56 @@ func _build_levelup() -> void:
 
 func _build_chest() -> void:
 	_chest_overlay = _make_overlay(0.6)
-	var box := _make_panel(_chest_overlay, 600)
+	var box := UiTheme.centered_panel(_chest_overlay, 600)
 	var title := _label("보물상자!", 36, Color(1, 0.85, 0.3))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	_chest_rewards = VBoxContainer.new()
 	_chest_rewards.add_theme_constant_override("separation", 8)
 	box.add_child(_chest_rewards)
-	_chest_button = Button.new()
-	_chest_button.text = "확인 (Enter)"
-	_chest_button.pressed.connect(func() -> void: chest_closed.emit())
+	_chest_button = _button("확인 (Enter)", func() -> void: chest_closed.emit())
 	box.add_child(_chest_button)
 
 
 func _build_pause() -> void:
 	_pause_overlay = _make_overlay(0.6)
-	var box := _make_panel(_pause_overlay, 520)
+	var box := UiTheme.centered_panel(_pause_overlay, 560)
 	var title := _label("일시정지", 34)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
-	_pause_info = _label("", 18, Color(0.9, 0.88, 1.0))
+	_pause_info = _label("", 17, Color(0.9, 0.88, 1.0))
 	box.add_child(_pause_info)
-	_resume_button = Button.new()
-	_resume_button.text = "계속하기 (ESC)"
-	_resume_button.pressed.connect(func() -> void: resume_pressed.emit())
+	box.add_child(SettingsPanel.new())
+	_resume_button = _button("계속하기 (ESC)", func() -> void: resume_pressed.emit())
 	box.add_child(_resume_button)
-	var restart := Button.new()
-	restart.text = "다시 시작"
-	restart.pressed.connect(func() -> void: restart_pressed.emit())
-	box.add_child(restart)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var restart := _button("다시 시작", func() -> void: restart_pressed.emit())
+	restart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(restart)
+	var menu := _button("메인 메뉴", func() -> void: menu_pressed.emit())
+	menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(menu)
+	box.add_child(row)
 
 
 func _build_gameover() -> void:
 	_over_overlay = _make_overlay(0.7)
-	var box := _make_panel(_over_overlay, 560)
+	var box := UiTheme.centered_panel(_over_overlay, 560)
 	_over_title = _label("", 38, Color(1, 0.4, 0.45))
 	_over_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_over_title)
 	_over_info = _label("", 19, Color(0.92, 0.9, 1.0))
 	box.add_child(_over_info)
-	_restart_button = Button.new()
-	_restart_button.text = "다시 하기"
-	_restart_button.pressed.connect(func() -> void: restart_pressed.emit())
-	box.add_child(_restart_button)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_restart_button = _button("다시 하기", func() -> void: restart_pressed.emit())
+	_restart_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_restart_button)
+	var menu := _button("메인 메뉴", func() -> void: menu_pressed.emit())
+	menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(menu)
+	box.add_child(row)
 
 
 func _process(delta: float) -> void:
@@ -301,10 +288,9 @@ func _process(delta: float) -> void:
 		_banner.modulate.a = clampf(_banner_t / 0.6, 0.0, 1.0)
 		if _banner_t <= 0.0:
 			_banner.visible = false
-
-
-func _on_choice(index: int) -> void:
-	choice_selected.emit(index)
+	if _vignette_a > 0.0:
+		_vignette_a = maxf(0.0, _vignette_a - delta * 2.2)
+		_vignette.modulate.a = _vignette_a
 
 
 # ── 외부에서 호출 ───────────────────────────
@@ -317,6 +303,10 @@ func update_info(player: Player, time: float, kills: int, gold: int) -> void:
 	_kill_label.text = "처치 %d" % kills
 	_gold_label.text = "골드 %d" % gold
 	_hp_label.text = "HP %d / %d" % [ceili(maxf(player.hp, 0.0)), int(player.max_hp)]
+
+
+func flash_damage(strength: float = 1.0) -> void:
+	_vignette_a = clampf(strength, 0.0, 1.0)
 
 
 func set_inventory(text: String) -> void:
@@ -364,15 +354,13 @@ func show_chest(rewards: Array) -> void:
 	for r: Dictionary in rewards:
 		var evo: bool = r.get("evo", false)
 		var row := PanelContainer.new()
-		var sb := _box(Color(0.45, 0.12, 0.35, 0.5) if evo else Color(0.4, 0.3, 0.08, 0.45),
-			Color(1.0, 0.5, 0.85) if evo else Color(0.75, 0.6, 0.2), 8)
-		row.add_theme_stylebox_override("panel", sb)
+		row.add_theme_stylebox_override("panel", UiTheme.box(
+			Color(0.45, 0.12, 0.35, 0.5) if evo else Color(0.4, 0.3, 0.08, 0.45),
+			Color(1.0, 0.5, 0.85) if evo else Color(0.75, 0.6, 0.2), 8))
 		var col := VBoxContainer.new()
 		row.add_child(col)
-		var t := _label(("★ 진화!  " if evo else "") + str(r.title), 20, Color(1, 0.7, 0.92) if evo else Color(1, 0.92, 0.6))
-		col.add_child(t)
-		var d := _label(str(r.desc), 15, Color(0.88, 0.86, 0.96))
-		col.add_child(d)
+		col.add_child(_label(("★ 진화!  " if evo else "") + str(r.title), 20, Color(1, 0.7, 0.92) if evo else Color(1, 0.92, 0.6)))
+		col.add_child(_label(str(r.desc), 15, Color(0.88, 0.86, 0.96)))
 		_chest_rewards.add_child(row)
 	_chest_overlay.visible = true
 	_chest_button.grab_focus()

@@ -23,6 +23,10 @@ var shake_time := 0.0
 var shake_power := 0.0
 var _frame := 0
 var last_hit_by := ""
+var stress := 0
+var reward := 0
+var new_record := false
+var _boss_music := false
 
 var world: Node2D
 var bg: Background
@@ -60,7 +64,12 @@ func _ready() -> void:
 	bg = Background.new()
 	world.add_child(bg)
 
+	var char_id := SaveData.selected_char
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--char="):
+			char_id = a.substr(7)
 	player = Player.new()
+	player.setup(char_id)
 	world.add_child(player)
 	camera = Camera2D.new()
 	camera.position_smoothing_enabled = false
@@ -72,10 +81,14 @@ func _ready() -> void:
 	hud.restart_pressed.connect(_restart)
 	hud.resume_pressed.connect(_toggle_pause)
 	hud.chest_closed.connect(_on_chest_closed)
+	hud.menu_pressed.connect(_to_menu)
 
-	player.add_weapon("wand")
+	player.add_weapon(str(GameData.character(char_id).weapon))
 	_parse_debug_args()
 	_refresh_inventory()
+	Sfx.play_music("game")
+	if "--show-pause" in OS.get_cmdline_user_args():
+		_toggle_pause.call_deferred()    # 테스트 전용: 일시정지 화면으로 시작
 
 
 func _parse_debug_args() -> void:
@@ -84,6 +97,9 @@ func _parse_debug_args() -> void:
 	hold = "--hold" in args
 	hold_chest = "--hold-chest" in args
 	god = "--god" in args
+	for a in args:
+		if a.begins_with("--stress="):
+			stress = int(a.substr(9))
 	for a in args:
 		if a.begins_with("--start-time="):
 			time = float(a.substr(13))
@@ -157,6 +173,11 @@ func _restart() -> void:
 	get_tree().reload_current_scene()
 
 
+func _to_menu() -> void:
+	Sfx.stop_music()
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")
+
+
 # ─────────────────────────────────────────────
 # 메인 루프
 # ─────────────────────────────────────────────
@@ -208,10 +229,31 @@ func _update_game(delta: float) -> void:
 	bg.queue_redraw()
 
 	if player.hp <= 0.0:
-		_finish(false)
+		if player.revives > 0:
+			_revive()
+		else:
+			_finish(false)
+
+
+func _revive() -> void:
+	player.revives -= 1
+	player.hp = player.max_hp * 0.5
+	player.invuln = 2.5
+	# 주변 적을 쓸어내고 탄을 지운다
+	for e in enemies:
+		if not e.dead and e.boss == "" and e.position.distance_squared_to(player.position) < 320.0 * 320.0:
+			e.dead = true
+	for sh in shots:
+		sh.dead = true
+	add_fx(Fx.ring(player.position, Color(1.0, 0.95, 0.6), 320.0, 0.7))
+	hud.show_banner("부활!", Color(1.0, 0.95, 0.5))
+	Sfx.play("evolve")
+	shake(6.0, 0.3)
 
 
 func shake(power: float, duration: float = 0.25) -> void:
+	if not SaveData.settings.screen_shake:
+		return
 	shake_power = power
 	shake_time = duration
 
@@ -220,8 +262,14 @@ func _update_boss_bar() -> void:
 	for e in enemies:
 		if e.boss != "" and not e.dead:
 			hud.set_boss(str(GameData.ENEMIES[e.kind].name), e.hp / e.max_hp)
+			if not _boss_music and state == State.PLAYING:
+				_boss_music = true
+				Sfx.play_music("boss")
 			return
 	hud.clear_boss()
+	if _boss_music and state == State.PLAYING:
+		_boss_music = false
+		Sfx.play_music("game")
 
 
 # ─────────────────────────────────────────────
@@ -296,6 +344,14 @@ func random_enemy_in_view(mult: float = 1.0) -> Enemy:
 # 적 스폰 / 이벤트
 # ─────────────────────────────────────────────
 func _spawn(delta: float) -> void:
+	if stress > 0:
+		# 성능 테스트: 정해진 수만큼 적을 계속 채운다
+		var kinds := ["bat", "zombie", "skeleton", "ghost", "werewolf", "mage", "golem"]
+		var made := 0
+		while enemies.size() < stress and made < 20:
+			spawn_enemy(kinds[randi() % kinds.size()])
+			made += 1
+		return
 	var wave := GameData.wave_for(time)
 	var rate := float(wave.rate) * (0.45 if final_boss_spawned else 1.0)
 	spawn_acc += rate * delta
@@ -396,6 +452,7 @@ func _spawn_boss(kind: String) -> void:
 	if kind == "demon":
 		final_boss_spawned = true
 	hud.show_banner("보스 등장: %s" % GameData.ENEMIES[kind].name, Color(1, 0.3, 0.35))
+	Sfx.play("warning")
 
 
 # ─────────────────────────────────────────────
@@ -478,6 +535,8 @@ func _update_enemies(delta: float) -> void:
 func _hurt_player(amount: float, source: String) -> void:
 	if player.take_damage(amount):
 		last_hit_by = source
+		hud.flash_damage(clampf(0.45 + amount / 40.0, 0.45, 1.0))
+		Sfx.play("hurt", 0.05)
 		shake(4.0, 0.2)
 		add_fx(Fx.ring(player.position, Color(1, 0.3, 0.35), 30.0, 0.25))
 
@@ -524,6 +583,7 @@ func add_shot(s: EnemyShot) -> void:
 	if shots.size() >= MAX_SHOTS:
 		s.free()
 		return
+	Sfx.play("eshot", 0.08)
 	world.add_child(s)
 	shots.append(s)
 
@@ -558,7 +618,9 @@ func damage_enemy(e: Enemy, dmg: float, weapon: Weapon, dir: Vector2, kb: float)
 	e.knock += dir * 170.0 * kb * (1.0 - e.kb_resist)
 	if weapon != null:
 		weapon.damage_dealt += dmg
-	add_fx(Fx.number(e.position + Vector2(0, -e.radius - 6), dmg, Color(1, 1, 1)))
+	if SaveData.settings.damage_numbers:
+		add_fx(Fx.number(e.position + Vector2(0, -e.radius - 6), dmg, Color(1, 1, 1)))
+	Sfx.play("hit", 0.1)
 	if e.hp <= 0.0:
 		_kill_enemy(e)
 
@@ -568,6 +630,7 @@ func _kill_enemy(e: Enemy) -> void:
 	e.visible = false
 	kills += 1
 	var big := e.elite or e.boss != ""
+	Sfx.play("kill", 0.12)
 	add_fx(Fx.puff(e.position, e.color, e.radius * (2.4 if big else 1.6)))
 	if e.boss == "demon":
 		add_fx(Fx.ring(e.position, Color(1, 0.8, 0.4), 260.0, 0.8))
@@ -687,6 +750,7 @@ func _update_gems(delta: float) -> void:
 			if d2 < 14.0 * 14.0:
 				g.dead = true
 				g.visible = false
+				Sfx.play("gem", 0.1)
 				gain_xp(float(g.value))
 		else:
 			g.t += delta * 4.0
@@ -795,9 +859,11 @@ func _update_pickups() -> void:
 func _collect(kind: String) -> void:
 	match kind:
 		"chicken":
+			Sfx.play("heal")
 			heal_player(30.0)
 			add_fx(Fx.ring(player.position, Color(0.4, 1.0, 0.5), 40.0, 0.35))
 		"magnet":
+			Sfx.play("select")
 			for g in gems:
 				g.attracted = true
 			add_fx(Fx.ring(player.position, Color(0.5, 0.7, 1.0), 120.0, 0.5))
@@ -805,10 +871,12 @@ func _collect(kind: String) -> void:
 		"bomb":
 			_bomb()
 		"coin":
+			Sfx.play("coin")
 			gold += int(round(10.0 * float(player.stats["greed"])))
 
 
 func _bomb() -> void:
+	Sfx.play("boom")
 	var half := get_viewport_rect().size * 0.5
 	for e in enemies:
 		if e.dead:
@@ -866,6 +934,8 @@ func _cleanup() -> void:
 # 레벨업 / 보물상자
 # ─────────────────────────────────────────────
 func _open_levelup() -> void:
+	Sfx.play("levelup")
+	add_fx(Fx.ring(player.position, Color(1.0, 0.9, 0.4), 90.0, 0.5))
 	choices = _make_choices()
 	state = State.LEVELUP
 	hud.show_levelup(choices)
@@ -932,6 +1002,7 @@ func _apply_choice(c: Dictionary) -> void:
 func _on_choice_selected(index: int) -> void:
 	if state != State.LEVELUP or index < 0 or index >= choices.size():
 		return
+	Sfx.play("select")
 	_apply_choice(choices[index])
 	pending_levelups -= 1
 	hud.hide_levelup()
@@ -971,6 +1042,11 @@ func _open_chest(tier: int) -> void:
 		_apply_choice(c)
 		rewards.append({"evo": false, "title": c.title, "desc": c.desc})
 	_refresh_inventory()
+	var evolved := false
+	for r: Dictionary in rewards:
+		if r.get("evo", false):
+			evolved = true
+	Sfx.play("evolve" if evolved else "chest")
 	state = State.CHEST
 	hud.show_chest(rewards)
 
@@ -1004,6 +1080,10 @@ func _finish(won: bool) -> void:
 	state = State.WON if won else State.DEAD
 	hud.hide_levelup()
 	hud.hide_chest()
+	reward = GameData.run_reward(gold, kills, time, won)
+	new_record = SaveData.record_run(time, kills, player.level, reward, won)
+	Sfx.stop_music()
+	Sfx.play("victory" if won else "death")
 	hud.show_gameover(won, _summary_text())
 	if bot:
 		print("[bot] 종료: %s | %s | 처치 %d | 레벨 %d | 마지막 피해: %s" % ["승리" if won else "사망", Util.fmt_time(time), kills, player.level, last_hit_by])
@@ -1030,13 +1110,17 @@ func _summary_text() -> String:
 	lines.append("생존 시간   %s" % Util.fmt_time(time))
 	lines.append("처치 수     %d" % kills)
 	lines.append("도달 레벨   %d" % player.level)
-	lines.append("획득 골드   %d" % gold)
+	lines.append("주운 동전   %d" % gold)
 	if state == State.DEAD and last_hit_by != "":
 		lines.append("사망 원인   %s" % last_hit_by)
 	lines.append("")
 	lines.append("무기별 누적 피해")
 	for w in player.weapons:
 		lines.append("  %s Lv.%d   %d" % [w.def.name, w.level, int(w.damage_dealt)])
+	lines.append("")
+	lines.append("획득 골드   +%d   (보유 %d)" % [reward, SaveData.gold])
+	if new_record:
+		lines.append("★ 최고 생존 기록 갱신!")
 	return "\n".join(lines)
 
 

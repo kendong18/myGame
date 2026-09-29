@@ -4,6 +4,8 @@ extends Node2D
 
 const RADIUS := 12.0
 
+var character_id := "knight"
+var palette: Dictionary = {}
 var stats: Dictionary = {}
 var hp := GameData.BASE_HP
 var max_hp := GameData.BASE_HP
@@ -11,6 +13,7 @@ var xp := 0.0
 var level := 1
 var weapons: Array[Weapon] = []
 var passives: Dictionary = {}   # 패시브 id -> 레벨
+var revives := 0
 
 var dir := Vector2.RIGHT
 var face_x := 1.0
@@ -24,10 +27,30 @@ var regen_acc := 0.0
 var damage_taken := 0.0
 
 
-func _ready() -> void:
-	z_index = 5
+func setup(char_id: String) -> void:
+	character_id = char_id
+	palette = palette_for(GameData.character(char_id))
 	recalc_stats()
 	hp = max_hp
+	revives = int(stats["revival"])
+
+
+func _ready() -> void:
+	z_index = 5
+	if palette.is_empty():
+		setup(character_id)
+
+
+## 캐릭터 색상표 (빠진 값은 기본값)
+static func palette_for(ch: Dictionary) -> Dictionary:
+	var p := {
+		"cloth": Color(0.36, 0.48, 0.72), "cloth_dark": Color(0.24, 0.32, 0.52),
+		"skin": Color(0.95, 0.76, 0.6), "hair": Color(0.55, 0.35, 0.17), "boot": Color(0.3, 0.2, 0.13),
+	}
+	var custom: Dictionary = ch.get("palette", {})
+	for k: String in custom:
+		p[k] = custom[k]
+	return p
 
 
 func recalc_stats() -> void:
@@ -35,12 +58,23 @@ func recalc_stats() -> void:
 		"might": 1.0, "armor": 0.0, "max_hp_mul": 1.0, "recovery": 0.0,
 		"move_speed": 1.0, "cooldown": 1.0, "amount": 0, "area": 1.0,
 		"magnet": 1.0, "growth": 1.0, "proj_speed": 1.0, "duration": 1.0,
-		"luck": 1.0, "greed": 1.0,
+		"luck": 1.0, "greed": 1.0, "revival": 0.0,
 	}
+	# 1) 레벨업으로 얻은 패시브
 	for id: String in passives:
 		var p: Dictionary = GameData.PASSIVES[id]
 		var stat: String = p.stat
 		s[stat] = s[stat] + float(p.per) * int(passives[id])
+	# 2) 상점에서 산 영구 강화
+	for item: Dictionary in GameData.SHOP:
+		var lv := SaveData.upgrade_level(item.id)
+		if lv > 0:
+			var st: String = item.stat
+			s[st] = s[st] + float(item.per) * lv
+	# 3) 캐릭터 고유 보너스
+	var bonus: Dictionary = GameData.character(character_id).bonus
+	for st: String in bonus:
+		s[st] = s[st] + float(bonus[st])
 	s["cooldown"] = maxf(0.3, s["cooldown"])
 	stats = s
 	var ratio := 1.0 if max_hp <= 0.0 else hp / max_hp
@@ -101,40 +135,18 @@ func take_damage(amount: float) -> bool:
 
 
 func _draw() -> void:
-	var bob := -absf(sin(walk_t * 12.0)) * 2.0 if moving else 0.0
-
 	# 마늘 오라
 	if aura_radius > 0.0:
 		var ac := Color(0.75, 0.4, 1.0) if aura_evolved else Color(1.0, 0.92, 0.6)
 		draw_circle(Vector2.ZERO, aura_radius, Color(ac.r, ac.g, ac.b, 0.10))
 		draw_arc(Vector2.ZERO, aura_radius, 0.0, TAU, 48, Color(ac.r, ac.g, ac.b, 0.45), 2.0)
 
-	# 그림자
-	draw_colored_polygon(Util.ellipse(Vector2(0, 13), 12, 4), Color(0, 0, 0, 0.4))
-
-	var flash := hurt_flash > 0.0
-	var cloth := Color.WHITE if flash else Color(0.36, 0.48, 0.72)
-	var cloth_dark := Color.WHITE if flash else Color(0.24, 0.32, 0.52)
-	var skin := Color.WHITE if flash else Color(0.95, 0.76, 0.6)
-	var hair := Color.WHITE if flash else Color(0.55, 0.35, 0.17)
-	var boot := Color.WHITE if flash else Color(0.3, 0.2, 0.13)
-
-	# 발
+	var bob := -absf(sin(walk_t * 12.0)) * 2.0 if moving else 0.0
 	var step_off := sin(walk_t * 12.0) * 3.0 if moving else 0.0
-	draw_rect(Rect2(-6, 8 + bob, 5, 5), boot)
-	draw_rect(Rect2(1, 8 + bob + step_off * 0.3, 5, 5), boot)
-	# 몸
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(-9, 8 + bob), Vector2(9, 8 + bob), Vector2(7, -3 + bob), Vector2(-7, -3 + bob),
-	]), cloth)
-	draw_rect(Rect2(-7, 2 + bob, 14, 3), cloth_dark)
-	# 머리
-	draw_circle(Vector2(0, -9 + bob), 8, skin)
-	draw_arc(Vector2(0, -10 + bob), 8, PI, TAU, 12, hair, 4.0)
-	draw_rect(Rect2(-8, -11 + bob, 16, 3), hair)
-	# 눈
-	draw_rect(Rect2(1, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
-	draw_rect(Rect2(-4, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
+	# 부활 직후 무적 중에는 깜빡임
+	var blink := invuln > 0.5 and int(invuln * 12.0) % 2 == 0
+	if not blink:
+		Player.draw_hero(self, palette, bob, step_off, hurt_flash > 0.0)
 
 	# 체력바 (캐릭터가 뒤집혀도 항상 같은 위치)
 	if hp < max_hp:
@@ -143,3 +155,29 @@ func _draw() -> void:
 		var bx := -w / 2.0
 		draw_rect(Rect2(bx - 1, 17, w + 2, 6), Color(0, 0, 0, 0.7))
 		draw_rect(Rect2(bx, 18, w * ratio, 4), Color(0.9, 0.2, 0.25))
+
+
+## 캐릭터 그림. 게임 화면과 캐릭터 선택 화면이 함께 사용한다. (ci 자신의 _draw 안에서 호출해야 함)
+static func draw_hero(ci: CanvasItem, pal: Dictionary, bob: float, step_off: float, flash: bool) -> void:
+	var cloth: Color = Color.WHITE if flash else pal.cloth
+	var cloth_dark: Color = Color.WHITE if flash else pal.cloth_dark
+	var skin: Color = Color.WHITE if flash else pal.skin
+	var hair: Color = Color.WHITE if flash else pal.hair
+	var boot: Color = Color.WHITE if flash else pal.boot
+
+	ci.draw_colored_polygon(Util.ellipse(Vector2(0, 13), 12, 4), Color(0, 0, 0, 0.4))
+	# 발
+	ci.draw_rect(Rect2(-6, 8 + bob, 5, 5), boot)
+	ci.draw_rect(Rect2(1, 8 + bob + step_off * 0.3, 5, 5), boot)
+	# 몸
+	ci.draw_colored_polygon(PackedVector2Array([
+		Vector2(-9, 8 + bob), Vector2(9, 8 + bob), Vector2(7, -3 + bob), Vector2(-7, -3 + bob),
+	]), cloth)
+	ci.draw_rect(Rect2(-7, 2 + bob, 14, 3), cloth_dark)
+	# 머리
+	ci.draw_circle(Vector2(0, -9 + bob), 8, skin)
+	ci.draw_arc(Vector2(0, -10 + bob), 8, PI, TAU, 12, hair, 4.0)
+	ci.draw_rect(Rect2(-8, -11 + bob, 16, 3), hair)
+	# 눈
+	ci.draw_rect(Rect2(1, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
+	ci.draw_rect(Rect2(-4, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
