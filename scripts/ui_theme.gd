@@ -4,12 +4,27 @@ extends RefCounted
 
 static var _theme: Theme = null
 
+# 게임에 직접 넣는 글꼴. 파일이 있으면 이것을 쓰고, 없으면 컴퓨터에 깔린 글꼴로 대신한다.
+const FONT_PATH := "res://assets/fonts/Jua-Regular.ttf"
+
+
+static func _make_font() -> Font:
+	var system := SystemFont.new()
+	system.font_names = PackedStringArray(["Malgun Gothic", "맑은 고딕", "Noto Sans CJK KR", "Noto Sans KR", "Apple SD Gothic Neo", "sans-serif"])
+	if ResourceLoader.exists(FONT_PATH):
+		var f: Font = load(FONT_PATH)
+		if f != null:
+			# 게임 글꼴에 없는 글자는 시스템 글꼴로 채운다
+			f = f.duplicate()
+			f.fallbacks = [system]
+			return f
+	return system
+
 
 static func get_theme() -> Theme:
 	if _theme != null:
 		return _theme
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray(["Malgun Gothic", "맑은 고딕", "Noto Sans KR", "Apple SD Gothic Neo", "sans-serif"])
+	var font := _make_font()
 	var th := Theme.new()
 	th.default_font = font
 	th.default_font_size = 18
