@@ -8,7 +8,7 @@ func _ready() -> void:
 	save.persist = false          # 테스트가 실제 저장 파일을 바꾸지 않도록
 	save.gold = 5000
 	save.upgrades = {}
-	save.unlocked = ["knight", "mage"]
+	save.unlocked = ["coco", "miyu"]
 	var scene: Node = load("res://scenes/menu.tscn").instantiate()
 	add_child(scene)
 	await get_tree().process_frame
@@ -22,19 +22,19 @@ func _ready() -> void:
 	var item: Dictionary = GameData.SHOP[0]
 	print("힘 가격 %d, 구매 %s, 남은 골드 %d, 단계 %d" % [GameData.shop_cost(item, 0), save.buy_upgrade(item), save.gold, save.upgrade_level("might")])
 	var p := Player.new()
-	p.setup("knight")
-	print("힘 강화 후 공격력 배율 %.2f (기대 1.05), 기사 최대 체력 %d (기대 120)" % [p.stats["might"], int(p.max_hp)])
+	p.setup("coco")
+	print("힘 강화 후 공격력 배율 %.2f (기대 1.05), 코코 최대 체력 %d (기대 120)" % [p.stats["might"], int(p.max_hp)])
 	print("환불 %d, 골드 %d, 단계 %d" % [save.refund_all(), save.gold, save.upgrade_level("might")])
 
 	# 캐릭터 해금
-	var hunter: Dictionary = GameData.character("hunter")
-	print("사냥꾼 해금 %s (비용 %d), 골드 %d" % [save.unlock_char(hunter), hunter.cost, save.gold])
+	var hunter: Dictionary = GameData.character("scout")
+	print("탐사 로봇 해금 %s (비용 %d), 골드 %d" % [save.unlock_char(hunter), hunter.cost, save.gold])
 
 	# 부활 강화 반영
 	save.upgrades["revival"] = 1
 	var p2 := Player.new()
-	p2.setup("mage")
-	print("부활 횟수 %d (기대 1), 마법사 쿨타임 배율 %.2f (기대 0.90)" % [p2.revives, p2.stats["cooldown"]])
+	p2.setup("miyu")
+	print("부활 횟수 %d (기대 1), 미유 쿨타임 배율 %.2f (기대 0.90)" % [p2.revives, p2.stats["cooldown"]])
 
 	# 보상 계산
 	print("보상 예시: 동전 50, 처치 800, 5분, 패배 = %d / 승리 = %d" % [GameData.run_reward(50, 800, 300.0, false), GameData.run_reward(50, 800, 600.0, true)])

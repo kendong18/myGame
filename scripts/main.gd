@@ -23,7 +23,10 @@ var shake_time := 0.0
 var shake_power := 0.0
 var _frame := 0
 var last_hit_by := ""
+var reaction_counts: Dictionary = {}
 var stress := 0
+var demo_reaction := ""
+var _demo_t := 1.0
 var reward := 0
 var new_record := false
 var _boss_music := false
@@ -100,6 +103,8 @@ func _parse_debug_args() -> void:
 	for a in args:
 		if a.begins_with("--stress="):
 			stress = int(a.substr(9))
+		elif a.begins_with("--demo-reaction="):
+			demo_reaction = a.substr(16)    # 테스트 전용: 지정한 반응을 계속 일으킨다
 	for a in args:
 		if a.begins_with("--start-time="):
 			time = float(a.substr(13))
@@ -204,6 +209,11 @@ func _update_game(delta: float) -> void:
 		player.hp = player.max_hp
 
 	_rebuild_grid()
+	if demo_reaction != "":
+		_demo_t -= delta
+		if _demo_t <= 0.0:
+			_demo_t = 1.6
+			_run_demo()
 	_spawn(delta)
 	_run_events()
 	_update_enemies(delta)
@@ -249,6 +259,25 @@ func _revive() -> void:
 	hud.show_banner("부활!", Color(1.0, 0.95, 0.5))
 	Sfx.play("evolve")
 	shake(6.0, 0.3)
+
+
+## 테스트 전용: 가까운 적에게 두 무기의 속성을 차례로 적용해 반응을 일으킨다
+func _run_demo() -> void:
+	var pairs := {
+		"gel+shock": ["gelgun", "bolt"], "cold+heat": ["canister", "torch"],
+		"gel+heat": ["gelgun", "torch"], "cold+shock": ["canister", "bolt"],
+		"overload": ["gelgun", "satellite"],
+	}
+	if not pairs.has(demo_reaction):
+		return
+	var near := nearest_enemies(player.position, 1, 500.0)
+	if near.is_empty():
+		return
+	var target: Enemy = near[0]
+	var ids: Array = pairs[demo_reaction]
+	_apply_element(target, Weapon.new(ids[0]), 12.0)
+	_apply_element(target, Weapon.new(ids[1]), 12.0)
+	print("[demo] %.2f" % time)
 
 
 func shake(power: float, duration: float = 0.25) -> void:
@@ -346,7 +375,7 @@ func random_enemy_in_view(mult: float = 1.0) -> Enemy:
 func _spawn(delta: float) -> void:
 	if stress > 0:
 		# 성능 테스트: 정해진 수만큼 적을 계속 채운다
-		var kinds := ["bat", "zombie", "skeleton", "ghost", "werewolf", "mage", "golem"]
+		var kinds := ["moth", "jelly", "drone", "bubble", "hound", "turret", "cube"]
 		var made := 0
 		while enemies.size() < stress and made < 20:
 			spawn_enemy(kinds[randi() % kinds.size()])
@@ -361,8 +390,8 @@ func _spawn(delta: float) -> void:
 		if enemies.size() < int(wave.max):
 			var kind: String = types[randi() % types.size()]
 			# 마법사가 너무 많으면 화면이 탄막으로 가득 차므로 동시 마릿수를 제한
-			if kind == "mage" and _count_kind("mage") >= 3 + int(time / 120.0):
-				kind = "skeleton"
+			if kind == "turret" and _count_kind("turret") >= 3 + int(time / 120.0):
+				kind = "drone"
 			spawn_enemy(kind)
 	# 초반에도 화면이 너무 한산하지 않도록 최소 적 수 유지
 	if enemies.size() < 6 + int(time / 10.0):
@@ -449,7 +478,7 @@ func _spawn_stream(kind: String, count: int) -> void:
 
 func _spawn_boss(kind: String) -> void:
 	spawn_enemy(kind)
-	if kind == "demon":
+	if kind == "core":
 		final_boss_spawned = true
 	hud.show_banner("보스 등장: %s" % GameData.ENEMIES[kind].name, Color(1, 0.3, 0.35))
 	Sfx.play("warning")
@@ -466,6 +495,10 @@ func _update_enemies(delta: float) -> void:
 		var to := ppos - e.position
 		var dist := to.length()
 		var dir := to / maxf(dist, 0.001)
+		if not e.status.is_empty() or e.stun > 0.0:
+			_tick_status(e, delta)
+			if e.dead:
+				continue
 		var vel := Vector2.ZERO
 		if e.straight != Vector2.ZERO:
 			vel = e.straight
@@ -477,12 +510,14 @@ func _update_enemies(delta: float) -> void:
 				vel = -dir * e.speed * 0.6
 			else:
 				vel = Vector2(-dir.y, dir.x) * e.speed * 0.4
-			e.shoot_t -= delta
+			if e.stun <= 0.0:
+				e.shoot_t -= delta
 			if e.shoot_t <= 0.0 and dist < 540.0:
 				e.shoot_t = 3.2
-				add_shot(EnemyShot.make(e.position, dir * 150.0, 5.0, Color(0.65, 0.45, 1.0), 6.0, "해골 마법사"))
+				add_shot(EnemyShot.make(e.position, dir * 150.0, 5.0, Color(0.65, 0.45, 1.0), 6.0, "포탑 봇"))
 		else:
 			vel = dir * e.speed
+		vel *= e.speed_mult()
 		if e.boss != "":
 			_boss_ai(e, delta, dir)
 		vel += e.knock
@@ -522,7 +557,7 @@ func _update_enemies(delta: float) -> void:
 				e.queue_redraw()
 
 		# 접촉 피해
-		if dist < e.radius + Player.RADIUS - 4.0:
+		if dist < e.radius + Player.RADIUS - 4.0 and e.stun <= 0.0:
 			_hurt_player(e.damage, ("엘리트 " if e.elite else "") + str(GameData.ENEMIES[e.kind].name))
 
 		if dist > 1400.0:
@@ -546,31 +581,31 @@ func _boss_ai(e: Enemy, delta: float, dir: Vector2) -> void:
 	e.skill_t -= delta
 	e.skill2_t -= delta
 	match e.boss:
-		"vampire":
+		"jellyking":
 			var rage := ratio < 0.4
 			if e.skill_t <= 0.0:
 				e.skill_t = 3.0 if rage else 4.2
-				_enemy_ring(e.position, 12 if rage else 9, 150.0, 10.0, e.spin, "흡혈귀 백작")
+				_enemy_ring(e.position, 12 if rage else 9, 150.0, 10.0, e.spin, "젤리 킹")
 				e.spin += 0.25
 			if e.skill2_t <= 0.0:
 				e.skill2_t = 8.0
 				for i in 8:
-					spawn_enemy("bat", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 8.0) * 60.0})
-		"demon":
+					spawn_enemy("moth", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 8.0) * 60.0})
+		"core":
 			var rage := ratio < 0.35
 			if rage and e.speed < 90.0:
 				e.speed = 92.0
-				hud.show_banner("마왕이 분노했다!", Color(1, 0.3, 0.3))
+				hud.show_banner("컴퓨터가 폭주한다!", Color(1, 0.3, 0.3))
 			if e.skill_t <= 0.0:
 				e.skill_t = 2.4 if rage else 3.2
-				_enemy_ring(e.position, 20 if rage else 14, 165.0, 14.0, e.spin, "마왕")
+				_enemy_ring(e.position, 20 if rage else 14, 165.0, 14.0, e.spin, "폭주 메인 컴퓨터")
 				e.spin += 0.2
 				for k in [-0.25, 0.0, 0.25]:
-					add_shot(EnemyShot.make(e.position, dir.rotated(k) * 230.0, 14.0, Color(1.0, 0.55, 0.15), 8.0, "마왕"))
+					add_shot(EnemyShot.make(e.position, dir.rotated(k) * 230.0, 14.0, Color(1.0, 0.55, 0.15), 8.0, "폭주 메인 컴퓨터"))
 			if e.skill2_t <= 0.0:
 				e.skill2_t = 6.0 if rage else 8.0
 				for i in 6:
-					spawn_enemy("ghost", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 90.0})
+					spawn_enemy("bubble", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 90.0})
 
 
 func _enemy_ring(pos: Vector2, n: int, speed: float, dmg: float, offset: float, src: String) -> void:
@@ -608,7 +643,7 @@ func _update_shots(delta: float) -> void:
 # ─────────────────────────────────────────────
 # 피해 / 처치
 # ─────────────────────────────────────────────
-func damage_enemy(e: Enemy, dmg: float, weapon: Weapon, dir: Vector2, kb: float) -> void:
+func damage_enemy(e: Enemy, dmg: float, weapon: Weapon, dir: Vector2, kb: float, apply_element: bool = true, num_color: Color = Color.WHITE) -> void:
 	if e.dead:
 		return
 	e.hp -= dmg
@@ -619,10 +654,170 @@ func damage_enemy(e: Enemy, dmg: float, weapon: Weapon, dir: Vector2, kb: float)
 	if weapon != null:
 		weapon.damage_dealt += dmg
 	if SaveData.settings.damage_numbers:
-		add_fx(Fx.number(e.position + Vector2(0, -e.radius - 6), dmg, Color(1, 1, 1)))
-	Sfx.play("hit", 0.1)
-	if e.hp <= 0.0:
+		add_fx(Fx.number(e.position + Vector2(0, -e.radius - 6), dmg, num_color, num_color != Color.WHITE))
+	if apply_element:
+		Sfx.play("hit", 0.1)
+		if weapon != null and weapon.element != "":
+			_apply_element(e, weapon, dmg)
+	if e.hp <= 0.0 and not e.dead:
 		_kill_enemy(e)
+
+
+# ─────────────────────────────────────────────
+# 속성 상태와 반응
+# ─────────────────────────────────────────────
+func _pair_key(a: String, b: String) -> String:
+	return a + "+" + b if a < b else b + "+" + a
+
+
+## 무기의 속성을 적에게 적용한다. 이미 붙어 있는 다른 속성과 반응하면 그 반응이 터진다.
+func _apply_element(e: Enemy, w: Weapon, dmg: float) -> void:
+	var elem := w.element
+	var mult := float(player.stats["reaction"])
+	if elem == "plasma":
+		# 플라즈마는 상태를 남기지 않고, 붙어 있는 상태를 모두 터뜨린다
+		var n := e.status.size() + (1 if e.stun > 0.0 else 0)
+		if n > 0:
+			e.status.clear()
+			e.stun = 0.0
+			e.burn_dps = 0.0
+			e.queue_redraw()
+			_react("overload", e, w, dmg, mult, n)
+		return
+	for other: String in e.status.keys():
+		if other == elem:
+			continue
+		var key := _pair_key(elem, other)
+		if GameData.REACTIONS.has(key):
+			e.status.erase(other)
+			if other == "heat":
+				e.burn_dps = 0.0
+			e.queue_redraw()
+			_react(key, e, w, dmg, mult, 1)
+			return
+	_add_status(e, elem, dmg, w)
+
+
+func _add_status(e: Enemy, elem: String, dmg: float, w: Weapon) -> void:
+	if e.dead:
+		return
+	var dur: float = GameData.STATUS_TIME[elem]
+	if e.boss != "":
+		dur *= 0.5
+	e.status[elem] = maxf(float(e.status.get(elem, 0.0)), dur)
+	if elem == "heat":
+		e.burn_dps = maxf(e.burn_dps, dmg * 0.5)
+		e.burn_src = w
+	e.queue_redraw()
+
+
+func _stun(e: Enemy, dur: float) -> void:
+	if e.dead:
+		return
+	if e.boss != "":
+		dur *= 0.25
+	e.stun = maxf(e.stun, dur)
+	e.queue_redraw()
+
+
+func _tick_status(e: Enemy, delta: float) -> void:
+	var changed := false
+	for k: String in e.status.keys():
+		e.status[k] = float(e.status[k]) - delta
+		if float(e.status[k]) <= 0.0:
+			e.status.erase(k)
+			changed = true
+			if k == "heat":
+				e.burn_dps = 0.0
+	if e.stun > 0.0:
+		e.stun -= delta
+		if e.stun <= 0.0:
+			changed = true
+	if e.status.has("heat"):
+		e.burn_tick -= delta
+		if e.burn_tick <= 0.0:
+			e.burn_tick = 0.5
+			damage_enemy(e, e.burn_dps * 0.5, e.burn_src, Vector2.ZERO, 0.0, false, Color(1.0, 0.65, 0.3))
+	if changed:
+		e.queue_redraw()
+
+
+## 반응 효과 범위 검사용. 공유 버퍼를 쓰지 않아서 다른 반복문 안에서 호출해도 안전하다.
+func _near_fresh(pos: Vector2, radius: float, exclude: Enemy = null) -> Array[Enemy]:
+	var out: Array[Enemy] = []
+	var r2 := radius * radius
+	var c0 := _cell_of(pos - Vector2(radius, radius))
+	var c1 := _cell_of(pos + Vector2(radius, radius))
+	for cx in range(c0.x, c1.x + 1):
+		for cy in range(c0.y, c1.y + 1):
+			var arr: Variant = grid.get(Vector2i(cx, cy))
+			if arr == null:
+				continue
+			for t: Enemy in arr:
+				if t.dead or t == exclude:
+					continue
+				if t.position.distance_squared_to(pos) < r2:
+					out.append(t)
+	out.sort_custom(func(a: Enemy, b: Enemy) -> bool:
+		return a.position.distance_squared_to(pos) < b.position.distance_squared_to(pos))
+	return out
+
+
+func _react(key: String, e: Enemy, w: Weapon, dmg: float, mult: float, n: int) -> void:
+	var info: Dictionary = GameData.REACTIONS[key]
+	var col: Color = info.color
+	var pos := e.position
+	reaction_counts[key] = int(reaction_counts.get(key, 0)) + 1
+	add_fx(Fx.label(pos + Vector2(0, -e.radius - 44), "%s!" % info.name, col, 21.0))
+	Sfx.play("react", 0.08)
+	match key:
+		"gel+shock":
+			# 전도: 가까운 적 4마리에게 전기가 퍼진다
+			damage_enemy(e, dmg * mult, w, Vector2.ZERO, 0.0, false, col)
+			var hit := 0
+			for t in _near_fresh(pos, 150.0, e):
+				if hit >= 4:
+					break
+				add_fx(Fx.arc(pos, t.position, col))
+				damage_enemy(t, dmg * 1.5 * mult, w, (t.position - pos).normalized(), 0.3, false, col)
+				hit += 1
+			add_fx(Fx.ring(pos, col, 40.0, 0.25))
+		"cold+heat":
+			# 열충격: 큰 피해와 작은 범위 폭발
+			damage_enemy(e, dmg * 3.0 * mult, w, Vector2.ZERO, 0.0, false, col)
+			for t in _near_fresh(pos, 75.0, e):
+				damage_enemy(t, dmg * 1.2 * mult, w, (t.position - pos).normalized(), 0.6, false, col)
+			add_fx(Fx.ring(pos, Color(0.6, 0.9, 1.0), 85.0, 0.3))
+			add_fx(Fx.puff(pos, Color(1.0, 0.8, 0.6), 22.0))
+			shake(3.0, 0.12)
+		"gel+heat":
+			# 점화: 범위 폭발하고 주변 적에게 불이 붙는다
+			var victims := _near_fresh(pos, 85.0, e)
+			victims.append(e)
+			for t in victims:
+				damage_enemy(t, dmg * 2.0 * mult, w, (t.position - pos).normalized(), 0.6, false, col)
+				if not t.dead:
+					_add_status(t, "heat", dmg, w)
+			add_fx(Fx.ring(pos, col, 95.0, 0.35))
+			add_fx(Fx.puff(pos, col, 26.0))
+			shake(4.0, 0.15)
+		"cold+shock":
+			# 정지: 잠시 멈추고, 주변 적도 잠깐 멈춘다
+			damage_enemy(e, dmg * 0.5 * mult, w, Vector2.ZERO, 0.0, false, col)
+			_stun(e, 1.5)
+			for t in _near_fresh(pos, 60.0, e):
+				_stun(t, 0.8)
+			add_fx(Fx.ring(pos, col, 70.0, 0.3))
+		"overload":
+			# 과부하: 붙어 있던 상태 수만큼 커지는 폭발
+			var d := dmg * (0.75 + 0.6 * float(n)) * mult
+			var victims := _near_fresh(pos, 95.0, e)
+			victims.append(e)
+			for t in victims:
+				damage_enemy(t, d, w, (t.position - pos).normalized(), 0.8, false, col)
+			add_fx(Fx.ring(pos, col, 105.0, 0.35))
+			add_fx(Fx.puff(pos, col, 24.0))
+			shake(4.0, 0.15)
 
 
 func _kill_enemy(e: Enemy) -> void:
@@ -632,7 +827,7 @@ func _kill_enemy(e: Enemy) -> void:
 	var big := e.elite or e.boss != ""
 	Sfx.play("kill", 0.12)
 	add_fx(Fx.puff(e.position, e.color, e.radius * (2.4 if big else 1.6)))
-	if e.boss == "demon":
+	if e.boss == "core":
 		add_fx(Fx.ring(e.position, Color(1, 0.8, 0.4), 260.0, 0.8))
 		shake(10.0, 0.5)
 		_finish(true)
@@ -808,12 +1003,12 @@ func _break_prop(pr: Prop) -> void:
 	pr.visible = false
 	add_fx(Fx.puff(pr.position, Color(1.0, 0.6, 0.2), 16.0))
 	var luck := float(player.stats["luck"])
-	var table := [["chicken", 45.0], ["coin", 30.0], ["magnet", 12.0 * luck], ["bomb", 8.0 * luck]]
+	var table := [["battery", 45.0], ["coin", 30.0], ["magnet", 12.0 * luck], ["pulse", 8.0 * luck]]
 	var total := 0.0
 	for r in table:
 		total += float(r[1])
 	var roll := randf() * total
-	var kind := "chicken"
+	var kind := "battery"
 	for r in table:
 		roll -= float(r[1])
 		if roll <= 0.0:
@@ -858,7 +1053,7 @@ func _update_pickups() -> void:
 
 func _collect(kind: String) -> void:
 	match kind:
-		"chicken":
+		"battery":
 			Sfx.play("heal")
 			heal_player(30.0)
 			add_fx(Fx.ring(player.position, Color(0.4, 1.0, 0.5), 40.0, 0.35))
@@ -868,7 +1063,7 @@ func _collect(kind: String) -> void:
 				g.attracted = true
 			add_fx(Fx.ring(player.position, Color(0.5, 0.7, 1.0), 120.0, 0.5))
 			hud.show_banner("경험치 보석을 모두 끌어당긴다!", Color(0.6, 0.8, 1.0))
-		"bomb":
+		"pulse":
 			_bomb()
 		"coin":
 			Sfx.play("coin")
@@ -886,7 +1081,7 @@ func _bomb() -> void:
 			damage_enemy(e, 100.0, null, (e.position - player.position).normalized(), 0.5)
 	add_fx(Fx.ring(player.position, Color(1.0, 0.85, 0.4), 420.0, 0.6))
 	shake(8.0, 0.4)
-	hud.show_banner("폭발!", Color(1.0, 0.75, 0.3))
+	hud.show_banner("펄스 폭발!", Color(1.0, 0.75, 0.3))
 
 
 # ─────────────────────────────────────────────
@@ -948,7 +1143,7 @@ func _upgrade_pool() -> Array:
 		if w.level < w.max_level():
 			pool.append({
 				"type": "weapon_up", "id": w.id,
-				"title": "%s  Lv.%d → %d" % [w.def.name, w.level, w.level + 1],
+				"title": "%s%s  Lv.%d → %d" % [w.def.name, _elem_tag(w.id), w.level, w.level + 1],
 				"desc": w.level_up_text(),
 			})
 	if player.weapons.size() < GameData.MAX_WEAPONS:
@@ -956,7 +1151,7 @@ func _upgrade_pool() -> Array:
 			var d: Dictionary = GameData.WEAPONS[id]
 			if d.get("evolved", false) or player.get_weapon(id) != null or _has_evolved_of(id):
 				continue
-			pool.append({"type": "weapon_new", "id": id, "title": "[신규 무기]  %s" % d.name, "desc": d.desc})
+			pool.append({"type": "weapon_new", "id": id, "title": "[신규 무기]  %s%s" % [d.name, _elem_tag(id)], "desc": d.desc})
 	for id: String in GameData.PASSIVES:
 		var d: Dictionary = GameData.PASSIVES[id]
 		var lv: int = int(player.passives.get(id, 0))
@@ -967,6 +1162,12 @@ func _upgrade_pool() -> Array:
 		var title: String = "%s  Lv.%d → %d" % [d.name, lv, lv + 1] if lv > 0 else "[신규 아이템]  %s" % d.name
 		pool.append({"type": "passive", "id": id, "title": title, "desc": d.desc})
 	return pool
+
+
+## 무기 이름 옆에 붙는 속성 표시. 예: " [젤]"
+func _elem_tag(weapon_id: String) -> String:
+	var el := str(GameData.WEAPONS[weapon_id].get("element", ""))
+	return "" if el == "" else " [%s]" % GameData.element_name(el)
 
 
 func _has_evolved_of(base_id: String) -> bool:
@@ -1163,7 +1364,7 @@ func _bot_step(delta: float) -> void:
 				"weapon_up": score += 10
 				"weapon_new": score += 9
 				"passive":
-					if str(c.id) in ["spinach", "tome", "candle", "boots", "heart", "duplicator"]:
+					if str(c.id) in ["cell", "fan", "lens", "jet", "tank", "cloner", "catalyst"]:
 						score += 6
 			if score > best_score:
 				best_score = score
@@ -1178,8 +1379,8 @@ func _bot_step(delta: float) -> void:
 		var dmg_info := ""
 		for w in player.weapons:
 			dmg_info += " %s.%d=%d" % [w.id, w.level, int(w.damage_dealt)]
-		print("[bot] %s | LV %d | HP %d/%d | 적 %d | 보석 %d | 처치 %d | %.2fms |%s" % [
+		print("[bot] %s | LV %d | HP %d/%d | 적 %d | 보석 %d | 처치 %d | %.2fms | 반응 %s |%s" % [
 			Util.fmt_time(time), player.level, int(player.hp), int(player.max_hp),
-			enemies.size(), gems.size(), kills, avg_ms, dmg_info])
+			enemies.size(), gems.size(), kills, avg_ms, str(reaction_counts), dmg_info])
 		_bot_frame_us = 0
 		_bot_frames = 0

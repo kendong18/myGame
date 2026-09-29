@@ -56,6 +56,40 @@ static func number(pos: Vector2, value: float, col: Color, big: bool = false) ->
 	return f
 
 
+## 글자 알림 (반응 이름 등). 한글이 나오므로 UI 글꼴을 쓴다
+static func label(pos: Vector2, txt: String, col: Color, sz: float = 20.0) -> Fx:
+	var f := Fx.new()
+	f.kind = Kind.TEXT
+	f.position = pos
+	f.color = col
+	f.text = txt
+	f.size = sz
+	f.life = 0.9
+	f.max_life = 0.9
+	f.rise = Vector2(0, -34.0)
+	f.z_index = 22
+	return f
+
+
+## 두 점을 잇는 번개 줄기 (전도 반응)
+static func arc(from: Vector2, to: Vector2, col: Color = Color(1.0, 0.95, 0.5)) -> Fx:
+	var f := Fx.new()
+	f.kind = Kind.BOLT
+	f.position = from
+	f.color = col
+	f.life = 0.22
+	f.max_life = 0.22
+	f.z_index = 15
+	var d := to - from
+	var perp := Vector2(-d.y, d.x).normalized()
+	var segs := 6
+	for i in segs + 1:
+		var t := float(i) / float(segs)
+		var jitter := 0.0 if i == 0 or i == segs else randf_range(-9.0, 9.0)
+		f.pts.append(d * t + perp * jitter)
+	return f
+
+
 ## 채찍 궤적
 static func slash(pos: Vector2, width: float, height: float, dir: float, col: Color) -> Fx:
 	var f := Fx.new()
@@ -76,6 +110,7 @@ static func bolt(pos: Vector2, view_h: float) -> Fx:
 	var f := Fx.new()
 	f.kind = Kind.BOLT
 	f.position = pos
+	f.color = Color(1.0, 0.95, 0.5)
 	f.life = 0.25
 	f.max_life = 0.25
 	f.z_index = 15
@@ -112,7 +147,7 @@ func _draw() -> void:
 		Kind.RING:
 			draw_arc(Vector2.ZERO, size * (0.3 + t * 0.9), 0.0, TAU, 40, Color(color.r, color.g, color.b, (1.0 - t) * 0.9), 3.0)
 		Kind.TEXT:
-			var font := ThemeDB.fallback_font
+			var font := UiTheme.get_theme().default_font
 			var a := clampf(life / max_life * 1.6, 0.0, 1.0)
 			var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size)).x
 			draw_string_outline(font, Vector2(-tw / 2.0, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), 5, Color(0, 0, 0, a))
@@ -130,6 +165,6 @@ func _draw() -> void:
 			draw_line(Vector2(-side * hw, 0), Vector2(side * hw, 0), Color(1, 1, 1, a), 2.0)
 		Kind.BOLT:
 			var a := clampf(life / max_life * 1.5, 0.0, 1.0)
-			draw_polyline(pts, Color(1.0, 0.95, 0.5, a * 0.35), 12.0)
-			draw_polyline(pts, Color(1.0, 0.98, 0.7, a), 5.0)
+			draw_polyline(pts, Color(color.r, color.g, color.b, a * 0.35), 12.0)
+			draw_polyline(pts, Color(color.r, color.g, color.b, a), 5.0)
 			draw_polyline(pts, Color(1, 1, 1, a), 2.0)

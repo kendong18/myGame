@@ -46,7 +46,7 @@ func _build_background() -> void:
 	add_child(_bg)
 	_cam = Camera2D.new()
 	add_child(_cam)
-	var kinds := ["bat", "zombie", "skeleton", "ghost", "werewolf", "mage", "golem"]
+	var kinds := ["moth", "jelly", "drone", "bubble", "hound", "turret", "cube"]
 	var size := get_viewport_rect().size
 	for i in 16:
 		var e := Enemy.new()
@@ -146,12 +146,12 @@ func _build_title() -> void:
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	center.add_child(v)
 
-	var logo := UiTheme.label("NIGHT\nSURVIVORS", 76, Color(1.0, 0.88, 0.5), 14)
+	var logo := UiTheme.label(GameData.TITLE_EN, 78, Color(1.0, 0.92, 0.55), 14)
 	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logo.add_theme_color_override("font_outline_color", Color(0.4, 0.08, 0.12))
+	logo.add_theme_color_override("font_outline_color", Color(0.3, 0.2, 0.62))
 	logo.add_theme_constant_override("line_spacing", -8)
 	v.add_child(logo)
-	var sub := UiTheme.label("밤 의   생 존 자", 22, Color(0.75, 0.7, 0.9), 3)
+	var sub := UiTheme.label("%s  ·  %s" % [GameData.TITLE, GameData.SUBTITLE], 22, Color(0.75, 0.85, 1.0), 3)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sub)
 	v.add_child(Control.new())
@@ -344,32 +344,42 @@ func _make_shop_card(item: Dictionary) -> Control:
 # ─────────────────────────────────────────────
 func _build_howto() -> void:
 	var s := _new_screen("howto", 0.8)
-	var v := UiTheme.centered_panel(s, 760.0)
+	var v := UiTheme.centered_panel(s, 800.0)
 	var title := UiTheme.label("게임 방법", 34, Color(1, 0.88, 0.5))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
-	var lines := [
+	var lines: Array = [
 		["이동", "WASD 또는 방향키 (게임패드 왼쪽 스틱)"],
 		["공격", "무기가 자동으로 공격합니다. 피하는 데 집중하세요."],
+		["속성", "무기에는 열, 냉각, 전기, 젤, 플라즈마 속성이 있습니다. 맞은 적에게는 속성 상태가 붙습니다."],
+		["반응", "이미 상태가 붙은 적에게 다른 속성을 맞히면 반응이 터집니다. 아래는 반응 목록입니다."],
+	]
+	for key: String in GameData.REACTIONS:
+		var info: Dictionary = GameData.REACTIONS[key]
+		lines.append(["   · " + str(info.name), str(info.desc)])
+	lines.append_array([
 		["경험치", "적이 떨어뜨린 보석을 모아 레벨업합니다."],
 		["레벨업", "새 무기, 무기 강화, 아이템 중 하나를 고릅니다. (숫자키 1~3)"],
-		["진화", "무기를 8레벨까지 올리고 짝이 되는 아이템을 가진 채 보물상자를 열면 진화합니다."],
-		["보물상자", "금빛 테두리의 엘리트 적과 보스가 떨어뜨립니다."],
-		["화로", "부수면 치킨, 자석, 폭탄, 동전이 나옵니다."],
-		["목표", "10분에 나타나는 마왕을 쓰러뜨리면 승리합니다."],
+		["진화", "무기를 8레벨까지 올리고 짝이 되는 아이템을 가진 채 보급 상자를 열면 진화합니다."],
+		["보급 상자", "금빛 테두리의 엘리트 적과 보스가 떨어뜨립니다."],
+		["보급 캡슐", "부수면 배터리, 자석, 펄스탄, 동전이 나옵니다."],
+		["목표", "10분에 나타나는 폭주 메인 컴퓨터를 쓰러뜨리면 승리합니다."],
 		["기타", "ESC 또는 P: 일시정지 / F11: 전체 화면"],
-	]
+	])
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 6)
 	for l in lines:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 14)
 		var k := UiTheme.label(l[0], 17, Color(1, 0.85, 0.4), 2)
-		k.custom_minimum_size = Vector2(90, 0)
+		k.custom_minimum_size = Vector2(110, 0)
 		row.add_child(k)
 		var t := UiTheme.label(l[1], 16, Color(0.92, 0.9, 1.0), 2)
 		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		t.custom_minimum_size = Vector2(580, 0)
+		t.custom_minimum_size = Vector2(600, 0)
 		row.add_child(t)
-		v.add_child(row)
+		list.add_child(row)
+	v.add_child(_scroll_area(list, 250.0))
 	var wrap := CenterContainer.new()
 	wrap.add_child(_button("뒤로", _go_back, false, 160.0))
 	v.add_child(wrap)

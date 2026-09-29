@@ -5,11 +5,11 @@ const PATH := "user://save.json"
 
 var gold := 0
 var upgrades: Dictionary = {}
-var unlocked: Array = ["knight", "mage"]
+var unlocked: Array = ["coco", "miyu"]
 var best := {"time": 0.0, "kills": 0, "level": 0}
 var wins := 0
 var runs := 0
-var selected_char := "knight"
+var selected_char := "coco"
 var settings := {
 	"sfx": 0.8, "music": 0.5,
 	"damage_numbers": true, "screen_shake": true, "fullscreen": false,
@@ -43,10 +43,17 @@ func load_data() -> void:
 	var d: Dictionary = parsed
 	gold = int(d.get("gold", 0))
 	upgrades = d.get("upgrades", {})
-	unlocked = d.get("unlocked", ["knight", "mage"])
+	unlocked = d.get("unlocked", ["coco", "miyu"])
 	wins = int(d.get("wins", 0))
 	runs = int(d.get("runs", 0))
-	selected_char = str(d.get("selected_char", "knight"))
+	selected_char = str(d.get("selected_char", "coco"))
+	# 예전 버전의 캐릭터 아이디가 남아 있으면 정리
+	unlocked = unlocked.filter(func(id: Variant) -> bool: return GameData.is_valid_character(str(id)))
+	for base_id in ["coco", "miyu"]:
+		if not (base_id in unlocked):
+			unlocked.append(base_id)
+	if not GameData.is_valid_character(selected_char):
+		selected_char = "coco"
 	var b: Dictionary = d.get("best", {})
 	best = {"time": float(b.get("time", 0.0)), "kills": int(b.get("kills", 0)), "level": int(b.get("level", 0))}
 	var s: Dictionary = d.get("settings", {})

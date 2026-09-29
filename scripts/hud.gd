@@ -226,12 +226,17 @@ func _build_levelup() -> void:
 	var hint := _label("클릭 또는 숫자키 1~3으로 선택", 14, Color(0.7, 0.66, 0.85))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(hint)
+	var cheat := _label("반응:  젤+전기 전도  ·  냉각+열 열충격  ·  젤+열 점화  ·  냉각+전기 정지  ·  플라즈마+상태 과부하", 13, Color(0.6, 0.85, 0.95))
+	cheat.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cheat.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cheat.custom_minimum_size = Vector2(560, 0)
+	box.add_child(cheat)
 
 
 func _build_chest() -> void:
 	_chest_overlay = _make_overlay(0.6)
 	var box := UiTheme.centered_panel(_chest_overlay, 600)
-	var title := _label("보물상자!", 36, Color(1, 0.85, 0.3))
+	var title := _label("보급 상자!", 36, Color(1, 0.85, 0.3))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 	_chest_rewards = VBoxContainer.new()

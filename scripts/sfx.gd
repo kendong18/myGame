@@ -5,10 +5,10 @@ const POOL_SIZE := 16
 # 같은 소리가 너무 자주 겹치지 않도록 하는 최소 간격(밀리초)
 const THROTTLE := {
 	"hit": 45, "kill": 55, "shoot": 60, "whip": 70, "gem": 30, "coin": 50,
-	"hurt": 120, "thunder": 80, "eshot": 100,
+	"hurt": 120, "thunder": 80, "eshot": 100, "react": 60,
 }
 # 소리별 기본 음량(dB)
-const GAIN := {"hit": -6.0, "kill": -6.0, "shoot": -8.0, "gem": -8.0, "eshot": -10.0, "whip": -6.0}
+const GAIN := {"react": -5.0, "hit": -6.0, "kill": -6.0, "shoot": -8.0, "gem": -8.0, "eshot": -10.0, "whip": -6.0}
 
 var _sfx: Dictionary = {}
 var _tracks: Dictionary = {}

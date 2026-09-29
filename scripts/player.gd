@@ -4,7 +4,7 @@ extends Node2D
 
 const RADIUS := 12.0
 
-var character_id := "knight"
+var character_id := "coco"
 var palette: Dictionary = {}
 var stats: Dictionary = {}
 var hp := GameData.BASE_HP
@@ -44,8 +44,8 @@ func _ready() -> void:
 ## 캐릭터 색상표 (빠진 값은 기본값)
 static func palette_for(ch: Dictionary) -> Dictionary:
 	var p := {
-		"cloth": Color(0.36, 0.48, 0.72), "cloth_dark": Color(0.24, 0.32, 0.52),
-		"skin": Color(0.95, 0.76, 0.6), "hair": Color(0.55, 0.35, 0.17), "boot": Color(0.3, 0.2, 0.13),
+		"style": "human", "suit": Color(0.38, 0.6, 0.95), "suit_dark": Color(0.25, 0.42, 0.75),
+		"helmet": Color(0.95, 0.96, 1.0), "accent": Color(1.0, 0.55, 0.35),
 	}
 	var custom: Dictionary = ch.get("palette", {})
 	for k: String in custom:
@@ -58,7 +58,7 @@ func recalc_stats() -> void:
 		"might": 1.0, "armor": 0.0, "max_hp_mul": 1.0, "recovery": 0.0,
 		"move_speed": 1.0, "cooldown": 1.0, "amount": 0, "area": 1.0,
 		"magnet": 1.0, "growth": 1.0, "proj_speed": 1.0, "duration": 1.0,
-		"luck": 1.0, "greed": 1.0, "revival": 0.0,
+		"luck": 1.0, "greed": 1.0, "revival": 0.0, "reaction": 1.0,
 	}
 	# 1) 레벨업으로 얻은 패시브
 	for id: String in passives:
@@ -135,11 +135,16 @@ func take_damage(amount: float) -> bool:
 
 
 func _draw() -> void:
-	# 마늘 오라
+	# 진공청소기: 안쪽으로 빨려 들어가는 소용돌이
 	if aura_radius > 0.0:
-		var ac := Color(0.75, 0.4, 1.0) if aura_evolved else Color(1.0, 0.92, 0.6)
-		draw_circle(Vector2.ZERO, aura_radius, Color(ac.r, ac.g, ac.b, 0.10))
-		draw_arc(Vector2.ZERO, aura_radius, 0.0, TAU, 48, Color(ac.r, ac.g, ac.b, 0.45), 2.0)
+		var ac := Color(0.75, 0.5, 1.0) if aura_evolved else Color(0.5, 0.9, 0.95)
+		var t := float(Time.get_ticks_msec()) / 1000.0
+		draw_circle(Vector2.ZERO, aura_radius, Color(ac.r, ac.g, ac.b, 0.08))
+		draw_arc(Vector2.ZERO, aura_radius, 0.0, TAU, 48, Color(ac.r, ac.g, ac.b, 0.35), 2.0)
+		for i in 4:
+			var a0 := -t * 2.6 + TAU * float(i) / 4.0
+			draw_arc(Vector2.ZERO, aura_radius * 0.78, a0, a0 + 0.9, 10, Color(ac.r, ac.g, ac.b, 0.55), 2.5)
+			draw_arc(Vector2.ZERO, aura_radius * 0.48, a0 + 1.3, a0 + 2.1, 8, Color(ac.r, ac.g, ac.b, 0.45), 2.0)
 
 	var bob := -absf(sin(walk_t * 12.0)) * 2.0 if moving else 0.0
 	var step_off := sin(walk_t * 12.0) * 3.0 if moving else 0.0
@@ -159,25 +164,79 @@ func _draw() -> void:
 
 ## 캐릭터 그림. 게임 화면과 캐릭터 선택 화면이 함께 사용한다. (ci 자신의 _draw 안에서 호출해야 함)
 static func draw_hero(ci: CanvasItem, pal: Dictionary, bob: float, step_off: float, flash: bool) -> void:
-	var cloth: Color = Color.WHITE if flash else pal.cloth
-	var cloth_dark: Color = Color.WHITE if flash else pal.cloth_dark
-	var skin: Color = Color.WHITE if flash else pal.skin
-	var hair: Color = Color.WHITE if flash else pal.hair
-	var boot: Color = Color.WHITE if flash else pal.boot
+	var style: String = pal.style
+	var suit: Color = Color.WHITE if flash else pal.suit
+	var suit_dark: Color = Color.WHITE if flash else pal.suit_dark
+	var helmet: Color = Color.WHITE if flash else pal.helmet
+	var accent: Color = Color.WHITE if flash else pal.accent
+	var outline := Color(0.1, 0.1, 0.2, 0.75)
+	var glass := Color(0.14, 0.2, 0.42)
 
-	ci.draw_colored_polygon(Util.ellipse(Vector2(0, 13), 12, 4), Color(0, 0, 0, 0.4))
+	ci.draw_colored_polygon(Util.ellipse(Vector2(0, 13), 12, 4), Color(0, 0, 0, 0.35))
+	# 배낭 (몸 뒤쪽)
+	ci.draw_rect(Rect2(-12, -3 + bob, 6, 11), suit_dark)
 	# 발
-	ci.draw_rect(Rect2(-6, 8 + bob, 5, 5), boot)
-	ci.draw_rect(Rect2(1, 8 + bob + step_off * 0.3, 5, 5), boot)
-	# 몸
-	ci.draw_colored_polygon(PackedVector2Array([
-		Vector2(-9, 8 + bob), Vector2(9, 8 + bob), Vector2(7, -3 + bob), Vector2(-7, -3 + bob),
-	]), cloth)
-	ci.draw_rect(Rect2(-7, 2 + bob, 14, 3), cloth_dark)
-	# 머리
-	ci.draw_circle(Vector2(0, -9 + bob), 8, skin)
-	ci.draw_arc(Vector2(0, -10 + bob), 8, PI, TAU, 12, hair, 4.0)
-	ci.draw_rect(Rect2(-8, -11 + bob, 16, 3), hair)
-	# 눈
-	ci.draw_rect(Rect2(1, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
-	ci.draw_rect(Rect2(-4, -9 + bob, 2, 3), Color(0.1, 0.1, 0.18))
+	if style == "round":
+		ci.draw_circle(Vector2(-5, 11 + bob), 3.2, suit_dark)
+		ci.draw_circle(Vector2(5, 11 + bob), 3.2, suit_dark)
+	else:
+		ci.draw_rect(Rect2(-6.5, 9 + bob, 6, 4.5), suit_dark)
+		ci.draw_rect(Rect2(0.5, 9 + bob + step_off * 0.3, 6, 4.5), suit_dark)
+	# 몸통
+	ci.draw_colored_polygon(Util.ellipse(Vector2(0, 3 + bob), 8.5, 8.0, 16), suit)
+	ci.draw_arc(Vector2(0, 3 + bob), 8.5, 0.0, TAU, 16, outline, 1.2)
+	ci.draw_circle(Vector2(0, 4.5 + bob), 2.6, accent)
+
+	match style:
+		"robot":
+			ci.draw_line(Vector2(0, -17 + bob), Vector2(0, -22 + bob), suit_dark, 1.5)
+			ci.draw_circle(Vector2(0, -23 + bob), 2.0, accent)
+			ci.draw_rect(Rect2(-8.5, -17 + bob, 17, 14), helmet)
+			ci.draw_rect(Rect2(-8.5, -17 + bob, 17, 14), outline, false, 1.2)
+			ci.draw_rect(Rect2(-6.5, -14.5 + bob, 13, 9), glass)
+			ci.draw_rect(Rect2(-4.5, -12.5 + bob, 3, 4), accent)
+			ci.draw_rect(Rect2(1.5, -12.5 + bob, 3, 4), accent)
+		"round":
+			ci.draw_circle(Vector2(0, -9 + bob), 10, helmet)
+			ci.draw_arc(Vector2(0, -9 + bob), 10, 0.0, TAU, 20, outline, 1.2)
+			ci.draw_circle(Vector2(0, -9 + bob), 7.2, glass)
+			ci.draw_circle(Vector2(0, -9 + bob), 4.6, accent)
+			ci.draw_circle(Vector2(0, -9 + bob), 2.3, Color(0.05, 0.1, 0.2))
+			ci.draw_circle(Vector2(-1.2, -10.3 + bob), 1.1, Color.WHITE)
+			ci.draw_line(Vector2(0, -19 + bob), Vector2(0, -23 + bob), suit_dark, 1.5)
+			ci.draw_circle(Vector2(0, -24 + bob), 1.8, Color(1.0, 0.4, 0.5))
+		_:
+			# 귀와 안테나 (헬멧 뒤에 그린다)
+			match style:
+				"cat":
+					for sx in [-1.0, 1.0]:
+						ci.draw_colored_polygon(PackedVector2Array([Vector2(sx * 9.0, -13 + bob), Vector2(sx * 8.0, -25 + bob), Vector2(sx * 1.5, -18 + bob)]), helmet)
+						ci.draw_colored_polygon(PackedVector2Array([Vector2(sx * 7.6, -15 + bob), Vector2(sx * 7.2, -22 + bob), Vector2(sx * 3.2, -17.5 + bob)]), accent)
+				"bear":
+					for sx in [-1.0, 1.0]:
+						ci.draw_circle(Vector2(sx * 8.5, -16 + bob), 4.2, helmet)
+						ci.draw_circle(Vector2(sx * 8.5, -16 + bob), 2.2, accent)
+				"owl":
+					for sx in [-1.0, 1.0]:
+						ci.draw_colored_polygon(PackedVector2Array([Vector2(sx * 9.5, -12 + bob), Vector2(sx * 9.0, -23 + bob), Vector2(sx * 2.5, -18 + bob)]), suit_dark)
+				_:
+					ci.draw_line(Vector2(0, -18 + bob), Vector2(2, -23 + bob), suit_dark, 1.5)
+					ci.draw_circle(Vector2(2.5, -24 + bob), 2.0, accent)
+			# 헬멧과 얼굴 유리
+			ci.draw_circle(Vector2(0, -9 + bob), 10, helmet)
+			ci.draw_arc(Vector2(0, -9 + bob), 10, 0.0, TAU, 20, outline, 1.2)
+			ci.draw_colored_polygon(Util.ellipse(Vector2(0.5, -8.5 + bob), 7.8, 6.6, 16), glass)
+			ci.draw_colored_polygon(Util.ellipse(Vector2(-2.5, -12 + bob), 3.0, 1.3, 8), Color(1, 1, 1, 0.5))
+			# 눈 (살짝 앞쪽을 봄)
+			Util.eye(ci, Vector2(-2.6, -8 + bob), 2.4, Vector2(0.8, 0.0))
+			Util.eye(ci, Vector2(3.6, -8 + bob), 2.4, Vector2(0.8, 0.0))
+			ci.draw_circle(Vector2(-5.2, -5.2 + bob), 1.2, Color(1.0, 0.55, 0.65, 0.7))
+			ci.draw_circle(Vector2(6.2, -5.2 + bob), 1.2, Color(1.0, 0.55, 0.65, 0.7))
+			if style == "cat":
+				ci.draw_line(Vector2(6, -6 + bob), Vector2(11, -7 + bob), Color(1, 1, 1, 0.8), 1.0)
+				ci.draw_line(Vector2(6, -5 + bob), Vector2(11, -4 + bob), Color(1, 1, 1, 0.8), 1.0)
+				ci.draw_line(Vector2(-9, 6 + bob), Vector2(-15, 0 + bob), accent, 3.0)
+			elif style == "owl":
+				ci.draw_arc(Vector2(-2.6, -8 + bob), 4.2, 0.0, TAU, 12, Color(1.0, 0.85, 0.35), 1.4)
+				ci.draw_arc(Vector2(3.6, -8 + bob), 4.2, 0.0, TAU, 12, Color(1.0, 0.85, 0.35), 1.4)
+				ci.draw_colored_polygon(PackedVector2Array([Vector2(0.4, -5.5 + bob), Vector2(2.6, -5.5 + bob), Vector2(1.5, -3.2 + bob)]), accent)

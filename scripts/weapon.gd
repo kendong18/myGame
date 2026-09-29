@@ -20,6 +20,8 @@ var angle := 0.0
 var active := 0.0
 var cool := 0.3
 var books: Array = []
+var element := ""
+var color := Color.WHITE
 
 var g: Main
 var p: Player
@@ -28,6 +30,8 @@ var p: Player
 func _init(weapon_id: String) -> void:
 	id = weapon_id
 	def = GameData.WEAPONS[weapon_id]
+	element = str(def.get("element", ""))
+	color = GameData.element_color(element)
 	recompute()
 
 
@@ -168,8 +172,7 @@ func _fire_whip(idx: int) -> void:
 	g.hit_props(center, length * 0.5)
 	if float(s.get("lifesteal", 0.0)) > 0.0 and hits > 0:
 		g.heal_player(float(mini(hits, 8)))
-	var col := Color(1.0, 0.35, 0.4) if is_evolved() else Color(1.0, 1.0, 1.0)
-	g.add_fx(Fx.slash(center, length, height, side, col))
+	g.add_fx(Fx.slash(center, length, height, side, color.lightened(0.15) if is_evolved() else color))
 	Sfx.play("whip", 0.08)
 
 
@@ -191,7 +194,8 @@ func _fire_wand(idx: int) -> void:
 		a += randf_range(-0.15, 0.15)
 	var pr := Projectile.make("bolt", p.position + Vector2(0, -4), Vector2.from_angle(a) * _spd(),
 		_dmg(), int(s.pierce), _dur(), 7.0 * _area(), self)
-	pr.color = Color(1.0, 0.88, 0.4) if is_evolved() else Color(0.48, 0.85, 1.0)
+	pr.color = color
+	pr.evolved = is_evolved()
 	pr.kb = 0.6
 	g.add_projectile(pr)
 	Sfx.play("shoot", 0.1)
@@ -205,6 +209,8 @@ func _fire_knife(idx: int) -> void:
 	var perp := Vector2(-d.y, d.x)
 	var pr := Projectile.make("knife", p.position + Vector2(0, -4) + perp * off, Vector2.from_angle(a) * _spd(),
 		_dmg(), int(s.pierce), _dur(), 6.0, self)
+	pr.color = color
+	pr.evolved = is_evolved()
 	pr.kb = 0.4
 	g.add_projectile(pr)
 	Sfx.play("shoot", 0.15)
@@ -220,6 +226,8 @@ func _fire_axe(idx: int) -> void:
 	pr.spin = 12.0 * dir_x
 	pr.kb = 0.8
 	pr.hit_interval = 0.4
+	pr.color = color
+	pr.evolved = is_evolved()
 	g.add_projectile(pr)
 	Sfx.play("shoot", 0.1)
 
@@ -233,6 +241,7 @@ func _fire_spiral(idx: int) -> void:
 	pr.curve = 1.3
 	pr.hit_interval = 0.5
 	pr.kb = 0.8
+	pr.color = color
 	g.add_projectile(pr)
 	if idx == 0:
 		Sfx.play("whip")
@@ -250,6 +259,7 @@ func _fire_zone() -> void:
 	pr.delay = delay
 	pr.hit_interval = float(s.interval)
 	pr.kb = 0.1
+	pr.color = color
 	pr.evolved = is_evolved()
 	g.add_projectile(pr)
 
@@ -261,7 +271,7 @@ func _fire_lightning() -> void:
 	var r := 30.0 * _area()
 	var pos := e.position
 	g.add_fx(Fx.bolt(pos, g.get_viewport_rect().size.y))
-	g.add_fx(Fx.ring(pos, Color(1.0, 0.96, 0.63), r * 1.3, 0.25))
+	g.add_fx(Fx.ring(pos, color, r * 1.3, 0.25))
 	var dmg := _dmg()
 	for t in g.query_enemies(pos, r + 20.0):
 		if t.dead:
@@ -292,7 +302,8 @@ func _update_aura(delta: float) -> void:
 			continue
 		var rr := radius + e.radius
 		if e.position.distance_squared_to(p.position) < rr * rr:
-			g.damage_enemy(e, dmg, self, (e.position - p.position).normalized(), float(s.knockback))
+			# 진공청소기: 밀어내지 않고 안쪽으로 빨아들인다
+			g.damage_enemy(e, dmg, self, (p.position - e.position).normalized(), float(s.knockback))
 			hits += 1
 	g.hit_props(p.position, radius)
 	if float(s.get("heal", 0.0)) > 0.0 and hits > 0:
@@ -336,6 +347,7 @@ func _rebuild_books(n: int) -> void:
 		b.managed = true
 		b.hit_interval = float(s.interval)
 		b.kb = float(s.knockback)
+		b.color = color
 		b.evolved = is_evolved()
 		g.add_projectile(b)
 		books.append(b)
