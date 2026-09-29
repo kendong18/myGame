@@ -130,34 +130,7 @@ func _parse_debug_args() -> void:
 
 
 func _setup_input() -> void:
-	var keys := {
-		"move_left": [KEY_A, KEY_LEFT],
-		"move_right": [KEY_D, KEY_RIGHT],
-		"move_up": [KEY_W, KEY_UP],
-		"move_down": [KEY_S, KEY_DOWN],
-		"dash": [KEY_SPACE, KEY_SHIFT],
-	}
-	for action: String in keys:
-		if not InputMap.has_action(action):
-			InputMap.add_action(action, 0.2)
-		for k: int in keys[action]:
-			var ev := InputEventKey.new()
-			ev.physical_keycode = k as Key
-			InputMap.action_add_event(action, ev)
-	# 게임패드 왼쪽 스틱
-	for btn: int in [JOY_BUTTON_A, JOY_BUTTON_RIGHT_SHOULDER]:
-		var jb := InputEventJoypadButton.new()
-		jb.button_index = btn as JoyButton
-		InputMap.action_add_event("dash", jb)
-	var axes := {
-		"move_left": [JOY_AXIS_LEFT_X, -1.0], "move_right": [JOY_AXIS_LEFT_X, 1.0],
-		"move_up": [JOY_AXIS_LEFT_Y, -1.0], "move_down": [JOY_AXIS_LEFT_Y, 1.0],
-	}
-	for action: String in axes:
-		var jm := InputEventJoypadMotion.new()
-		jm.axis = axes[action][0] as JoyAxis
-		jm.axis_value = axes[action][1]
-		InputMap.action_add_event(action, jm)
+	InputSetup.apply()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -169,8 +142,15 @@ func _unhandled_input(event: InputEvent) -> void:
 				if state == State.LEVELUP:
 					_on_choice_selected(int(event.keycode) - int(KEY_1))
 			KEY_F11:
-				var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
-				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+				SaveData.settings["fullscreen"] = not bool(SaveData.settings.fullscreen)
+				SaveData.save()
+				SaveData.apply_window()
+	elif event is InputEventJoypadButton and event.pressed:
+		# 게임패드: 시작 버튼으로 일시정지, B 버튼으로 일시정지 해제
+		if event.button_index == JOY_BUTTON_START:
+			_toggle_pause()
+		elif event.button_index == JOY_BUTTON_B and state == State.PAUSED:
+			_toggle_pause()
 
 
 func _toggle_pause() -> void:
@@ -303,7 +283,7 @@ func shake(power: float, duration: float = 0.25) -> void:
 func _update_boss_bar() -> void:
 	for e in enemies:
 		if e.boss != "" and not e.dead:
-			hud.set_boss(str(GameData.ENEMIES[e.kind].name), e.hp / e.max_hp)
+			hud.set_boss(T.t(str(GameData.ENEMIES[e.kind].name)), e.hp / e.max_hp)
 			if not _boss_music and state == State.PLAYING:
 				_boss_music = true
 				Sfx.play_music("boss")
@@ -493,7 +473,7 @@ func _spawn_boss(kind: String) -> void:
 	spawn_enemy(kind)
 	if kind == "core":
 		final_boss_spawned = true
-	hud.show_banner("보스 등장: %s" % GameData.ENEMIES[kind].name, Color(1, 0.3, 0.35))
+	hud.show_banner(T.f("보스 등장: %s", [T.t(str(GameData.ENEMIES[kind].name))]), Color(1, 0.3, 0.35))
 	Sfx.play("warning")
 
 
@@ -571,7 +551,7 @@ func _update_enemies(delta: float) -> void:
 
 		# 접촉 피해
 		if dist < e.radius + Player.RADIUS - 4.0 and e.stun <= 0.0:
-			_hurt_player(e.damage, ("엘리트 " if e.elite else "") + str(GameData.ENEMIES[e.kind].name))
+			_hurt_player(e.damage, (T.t("엘리트") + " " if e.elite else "") + T.t(str(GameData.ENEMIES[e.kind].name)))
 
 		if dist > 1400.0:
 			if e.straight != Vector2.ZERO:
@@ -663,7 +643,7 @@ func _update_shots(delta: float) -> void:
 		var rr := s.radius + Player.RADIUS - 2.0
 		if d2 < rr * rr:
 			s.dead = true
-			_hurt_player(s.damage, s.source)
+			_hurt_player(s.damage, T.t(s.source))
 
 
 # ─────────────────────────────────────────────
@@ -794,7 +774,7 @@ func _react(key: String, e: Enemy, w: Weapon, dmg: float, mult: float, n: int) -
 	var col: Color = info.color
 	var pos := e.position
 	reaction_counts[key] = int(reaction_counts.get(key, 0)) + 1
-	add_fx(Fx.label(pos + Vector2(0, -e.radius - 44), "%s!" % info.name, col, 21.0))
+	add_fx(Fx.label(pos + Vector2(0, -e.radius - 44), "%s!" % T.t(str(info.name)), col, 21.0))
 	Sfx.play("react", 0.08)
 	match key:
 		"gel+shock":
@@ -862,7 +842,7 @@ func _kill_enemy(e: Enemy) -> void:
 		for _i in 10:
 			spawn_gem(e.position + Vector2(randf_range(-40, 40), randf_range(-40, 40)), maxi(1, e.xp / 10))
 		spawn_chest(e.position, 3)
-		hud.show_banner("%s 격파!" % GameData.ENEMIES[e.kind].name, Color(1, 0.85, 0.3))
+		hud.show_banner(T.f("%s 격파!", [T.t(str(GameData.ENEMIES[e.kind].name))]), Color(1, 0.85, 0.3))
 		shake(8.0, 0.4)
 		return
 	spawn_gem(e.position, e.xp)
@@ -1169,7 +1149,7 @@ func _upgrade_pool() -> Array:
 		if w.level < w.max_level():
 			pool.append({
 				"type": "weapon_up", "id": w.id,
-				"title": "%s%s  Lv.%d → %d" % [w.def.name, _elem_tag(w.id), w.level, w.level + 1],
+				"title": "%s%s  Lv.%d → %d" % [T.t(str(w.def.name)), _elem_tag(w.id), w.level, w.level + 1],
 				"desc": w.level_up_text(),
 			})
 	if player.weapons.size() < GameData.MAX_WEAPONS:
@@ -1177,7 +1157,7 @@ func _upgrade_pool() -> Array:
 			var d: Dictionary = GameData.WEAPONS[id]
 			if d.get("evolved", false) or player.get_weapon(id) != null or _has_evolved_of(id):
 				continue
-			pool.append({"type": "weapon_new", "id": id, "title": "[신규 무기]  %s%s" % [d.name, _elem_tag(id)], "desc": d.desc})
+			pool.append({"type": "weapon_new", "id": id, "title": T.f("[신규 무기]  %s%s", [T.t(str(d.name)), _elem_tag(id)]), "desc": T.t(str(d.desc))})
 	for id: String in GameData.PASSIVES:
 		var d: Dictionary = GameData.PASSIVES[id]
 		var lv: int = int(player.passives.get(id, 0))
@@ -1185,8 +1165,8 @@ func _upgrade_pool() -> Array:
 			continue
 		if lv == 0 and player.passives.size() >= GameData.MAX_PASSIVES:
 			continue
-		var title: String = "%s  Lv.%d → %d" % [d.name, lv, lv + 1] if lv > 0 else "[신규 아이템]  %s" % d.name
-		pool.append({"type": "passive", "id": id, "title": title, "desc": d.desc})
+		var title: String = "%s  Lv.%d → %d" % [T.t(str(d.name)), lv, lv + 1] if lv > 0 else T.f("[신규 아이템]  %s", [T.t(str(d.name))])
+		pool.append({"type": "passive", "id": id, "title": title, "desc": T.t(str(d.desc))})
 	return pool
 
 
@@ -1204,7 +1184,7 @@ func _has_evolved_of(base_id: String) -> bool:
 func _make_choices() -> Array:
 	var pool := _upgrade_pool()
 	if pool.is_empty():
-		return [{"type": "heal", "id": "", "title": "치킨", "desc": "체력을 30% 회복합니다."}]
+		return [{"type": "heal", "id": "", "title": T.t("배터리"), "desc": T.t("체력을 30% 회복합니다.")}]
 	pool.shuffle()
 	return pool.slice(0, 3)
 
@@ -1255,15 +1235,15 @@ func _open_chest(tier: int) -> void:
 		if rewards.size() >= tier:
 			break
 		if w.can_evolve(player):
-			var from_name: String = w.def.name
+			var from_name: String = T.t(str(w.def.name))
 			var nw := _evolve_weapon(w)
-			rewards.append({"evo": true, "title": "%s → %s" % [from_name, nw.def.name], "desc": nw.def.desc})
+			rewards.append({"evo": true, "title": "%s → %s" % [from_name, T.t(str(nw.def.name))], "desc": T.t(str(nw.def.desc))})
 	# 남은 칸은 무작위 강화
 	while rewards.size() < tier:
 		var pool := _upgrade_pool()
 		if pool.is_empty():
 			player.heal(player.max_hp * 0.3)
-			rewards.append({"evo": false, "title": "치킨", "desc": "체력을 30% 회복했습니다."})
+			rewards.append({"evo": false, "title": T.t("배터리"), "desc": T.t("체력을 30% 회복했습니다.")})
 			break
 		var c: Dictionary = pool[randi() % pool.size()]
 		_apply_choice(c)
@@ -1291,11 +1271,11 @@ func _on_chest_closed() -> void:
 func _refresh_inventory() -> void:
 	var ws: PackedStringArray = []
 	for w in player.weapons:
-		ws.append("%s %d" % [w.def.name, w.level] if not w.is_evolved() else "★%s" % w.def.name)
+		ws.append("%s %d" % [T.t(str(w.def.name)), w.level] if not w.is_evolved() else "★%s" % T.t(str(w.def.name)))
 	var ps: PackedStringArray = []
 	for id: String in player.passives:
-		ps.append("%s %d" % [GameData.PASSIVES[id].name, player.passives[id]])
-	hud.set_inventory("무기  %s\n아이템  %s" % [" · ".join(ws), " · ".join(ps) if not ps.is_empty() else "-"])
+		ps.append("%s %d" % [T.t(str(GameData.PASSIVES[id].name)), player.passives[id]])
+	hud.set_inventory(T.f("무기  %s\n아이템  %s", [" · ".join(ws), " · ".join(ps) if not ps.is_empty() else "-"]))
 
 
 # ─────────────────────────────────────────────
@@ -1319,35 +1299,35 @@ func _finish(won: bool) -> void:
 
 func _status_text() -> String:
 	var lines: PackedStringArray = []
-	lines.append("생존 시간  %s    처치  %d    레벨  %d    골드  %d" % [Util.fmt_time(time), kills, player.level, gold])
+	lines.append(T.f("생존 시간  %s    처치  %d    레벨  %d    골드  %d", [Util.fmt_time(time), kills, player.level, gold]))
 	lines.append("")
-	lines.append("무기")
+	lines.append(T.t("무기"))
 	for w in player.weapons:
-		lines.append("  %s  Lv.%d" % [w.def.name, w.level] if not w.is_evolved() else "  ★ %s  (진화)" % w.def.name)
-	lines.append("아이템")
+		lines.append("  %s  Lv.%d" % [T.t(str(w.def.name)), w.level] if not w.is_evolved() else T.f("  ★ %s  (진화)", [T.t(str(w.def.name))]))
+	lines.append(T.t("아이템"))
 	if player.passives.is_empty():
-		lines.append("  (없음)")
+		lines.append(T.t("  (없음)"))
 	for id: String in player.passives:
-		lines.append("  %s  Lv.%d" % [GameData.PASSIVES[id].name, player.passives[id]])
+		lines.append("  %s  Lv.%d" % [T.t(str(GameData.PASSIVES[id].name)), player.passives[id]])
 	return "\n".join(lines)
 
 
 func _summary_text() -> String:
 	var lines: PackedStringArray = []
-	lines.append("생존 시간   %s" % Util.fmt_time(time))
-	lines.append("처치 수     %d" % kills)
-	lines.append("도달 레벨   %d" % player.level)
-	lines.append("주운 동전   %d" % gold)
+	lines.append(T.f("생존 시간   %s", [Util.fmt_time(time)]))
+	lines.append(T.f("처치 수     %d", [kills]))
+	lines.append(T.f("도달 레벨   %d", [player.level]))
+	lines.append(T.f("주운 동전   %d", [gold]))
 	if state == State.DEAD and last_hit_by != "":
-		lines.append("사망 원인   %s" % last_hit_by)
+		lines.append(T.f("사망 원인   %s", [last_hit_by]))
 	lines.append("")
-	lines.append("무기별 누적 피해")
+	lines.append(T.t("무기별 누적 피해"))
 	for w in player.weapons:
-		lines.append("  %s Lv.%d   %d" % [w.def.name, w.level, int(w.damage_dealt)])
+		lines.append("  %s Lv.%d   %d" % [T.t(str(w.def.name)), w.level, int(w.damage_dealt)])
 	lines.append("")
-	lines.append("획득 골드   +%d   (보유 %d)" % [reward, SaveData.gold])
+	lines.append(T.f("획득 골드   +%d   (보유 %d)", [reward, SaveData.gold]))
 	if new_record:
-		lines.append("★ 최고 생존 기록 갱신!")
+		lines.append(T.t("★ 최고 생존 기록 갱신!"))
 	return "\n".join(lines)
 
 

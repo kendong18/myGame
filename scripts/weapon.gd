@@ -51,7 +51,7 @@ func max_level() -> int:
 
 func level_up_text() -> String:
 	var lv: Dictionary = (def.levels as Array)[level - 1]
-	return lv.text
+	return T.t(str(lv.text))
 
 
 func is_evolved() -> bool:

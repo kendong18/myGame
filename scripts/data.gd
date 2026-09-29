@@ -380,8 +380,8 @@ static func element_color(element: String) -> Color:
 
 static func element_name(element: String) -> String:
 	if ELEMENTS.has(element):
-		return ELEMENTS[element].name
-	return "없음"
+		return T.t(str(ELEMENTS[element].name))
+	return T.t("없음")
 
 
 static func wave_for(time: float) -> Dictionary:

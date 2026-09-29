@@ -291,7 +291,9 @@ func _build_pause() -> void:
 	box.add_child(title)
 	_pause_info = _label("", 17, Color(0.9, 0.88, 1.0))
 	box.add_child(_pause_info)
-	box.add_child(SettingsPanel.new())
+	var sp := SettingsPanel.new()
+	sp.compact = true
+	box.add_child(sp)
 	_resume_button = _button("계속하기 (ESC)", func() -> void: resume_pressed.emit())
 	box.add_child(_resume_button)
 	var row := HBoxContainer.new()
@@ -342,8 +344,8 @@ func update_info(player: Player, time: float, kills: int, gold: int) -> void:
 	_xp_bar.value = player.xp
 	_level_label.text = "LV %d" % player.level
 	_time_label.text = Util.fmt_time(time)
-	_kill_label.text = "처치 %d" % kills
-	_gold_label.text = "골드 %d" % gold
+	_kill_label.text = T.f("처치 %d", [kills])
+	_gold_label.text = T.f("골드 %d", [gold])
 	_hp_label.text = "HP %d / %d" % [ceili(maxf(player.hp, 0.0)), int(player.max_hp)]
 
 
@@ -351,7 +353,7 @@ func update_info(player: Player, time: float, kills: int, gold: int) -> void:
 func set_dash(ratio: float) -> void:
 	_dash_bar.value = ratio
 	var ready := ratio >= 1.0
-	_dash_label.text = "대시 [Space]  준비됨" if ready else "대시 [Space]"
+	_dash_label.text = T.t("대시 [Space]  준비됨") if ready else T.t("대시 [Space]")
 	_dash_label.modulate = Color(1, 1, 1, 1.0) if ready else Color(1, 1, 1, 0.6)
 
 
@@ -409,7 +411,7 @@ func show_chest(rewards: Array) -> void:
 			Color(1.0, 0.5, 0.85) if evo else Color(0.75, 0.6, 0.2), 8))
 		var col := VBoxContainer.new()
 		row.add_child(col)
-		col.add_child(_label(("★ 진화!  " if evo else "") + str(r.title), 20, Color(1, 0.7, 0.92) if evo else Color(1, 0.92, 0.6)))
+		col.add_child(_label((T.t("★ 진화!") + "  " if evo else "") + str(r.title), 20, Color(1, 0.7, 0.92) if evo else Color(1, 0.92, 0.6)))
 		col.add_child(_label(str(r.desc), 15, Color(0.88, 0.86, 0.96)))
 		_chest_rewards.add_child(row)
 	_chest_overlay.visible = true

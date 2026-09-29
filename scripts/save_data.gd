@@ -13,10 +13,16 @@ var selected_char := "coco"
 var settings := {
 	"sfx": 0.8, "music": 0.5,
 	"damage_numbers": true, "screen_shake": true, "fullscreen": false,
+	"window_size": 0, "vsync": true, "keys": {}, "language": "auto",
 }
+# 창 모드일 때 고를 수 있는 창 크기
+const WINDOW_SIZES := [Vector2i(1280, 720), Vector2i(1600, 900), Vector2i(1920, 1080)]
 
 # 자동 테스트(--autoplay) 중에는 실제 저장 파일을 건드리지 않는다
 var persist := true
+
+# 화면을 다시 만든 뒤 처음 보여줄 메뉴 화면 (언어를 바꾸면 메뉴를 다시 불러온다)
+var pending_screen := ""
 
 
 func _ready() -> void:
@@ -28,7 +34,11 @@ func _ready() -> void:
 		for a in OS.get_cmdline_user_args():
 			if a.begins_with("--gold="):
 				gold = int(a.substr(7))
+			elif a.begins_with("--lang="):
+				settings["language"] = a.substr(7)    # 테스트 전용: ko 또는 en
 	apply_window()
+	InputSetup.apply()
+	Lang.setup()
 
 
 func load_data() -> void:
@@ -77,9 +87,19 @@ func save() -> void:
 func apply_window() -> void:
 	if "--autoplay" in OS.get_cmdline_user_args():
 		return
-	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	var full := bool(settings.fullscreen)
+	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if full else DisplayServer.WINDOW_MODE_WINDOWED
 	if DisplayServer.window_get_mode() != mode:
 		DisplayServer.window_set_mode(mode)
+	if not full:
+		var idx := clampi(int(settings.window_size), 0, WINDOW_SIZES.size() - 1)
+		var size: Vector2i = WINDOW_SIZES[idx]
+		var screen := DisplayServer.screen_get_size()
+		# 모니터보다 큰 크기는 쓰지 않는다
+		if size.x <= screen.x and size.y <= screen.y and DisplayServer.window_get_size() != size:
+			DisplayServer.window_set_size(size)
+			DisplayServer.window_set_position((screen - size) / 2)
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if bool(settings.vsync) else DisplayServer.VSYNC_DISABLED)
 
 
 func upgrade_level(id: String) -> int:
