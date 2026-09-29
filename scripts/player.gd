@@ -26,6 +26,12 @@ var moving := false
 var regen_acc := 0.0
 var damage_taken := 0.0
 
+# 대시
+var dash_t := 0.0                # 돌진이 남은 시간
+var dash_cd := 0.0               # 다시 쓸 수 있을 때까지 남은 시간
+var dash_dir := Vector2.RIGHT
+var trail: Array = []            # 잔상 [월드 위치, 나이]
+
 
 func setup(char_id: String) -> void:
 	character_id = char_id
@@ -58,7 +64,7 @@ func recalc_stats() -> void:
 		"might": 1.0, "armor": 0.0, "max_hp_mul": 1.0, "recovery": 0.0,
 		"move_speed": 1.0, "cooldown": 1.0, "amount": 0, "area": 1.0,
 		"magnet": 1.0, "growth": 1.0, "proj_speed": 1.0, "duration": 1.0,
-		"luck": 1.0, "greed": 1.0, "revival": 0.0, "reaction": 1.0,
+		"luck": 1.0, "greed": 1.0, "revival": 0.0, "reaction": 1.0, "dash_cd": 1.0,
 	}
 	# 1) 레벨업으로 얻은 패시브
 	for id: String in passives:
@@ -103,7 +109,21 @@ func step(delta: float, input: Vector2) -> void:
 		if absf(input.x) > 0.1:
 			face_x = signf(input.x)
 		walk_t += delta
-	position += input * GameData.BASE_SPEED * float(stats["move_speed"]) * delta
+	if dash_t > 0.0:
+		dash_t -= delta
+		position += dash_dir * GameData.DASH_SPEED * delta
+		trail.append([position, 0.0])
+		moving = true
+		walk_t += delta
+		if absf(dash_dir.x) > 0.1:
+			face_x = signf(dash_dir.x)
+	else:
+		position += input * GameData.BASE_SPEED * float(stats["move_speed"]) * delta
+	dash_cd = maxf(0.0, dash_cd - delta)
+	for t in trail:
+		t[1] = float(t[1]) + delta
+	while not trail.is_empty() and float(trail[0][1]) > 0.28:
+		trail.pop_front()
 	invuln = maxf(0.0, invuln - delta)
 	hurt_flash = maxf(0.0, hurt_flash - delta)
 
@@ -116,6 +136,25 @@ func step(delta: float, input: Vector2) -> void:
 			heal(whole)
 	scale.x = face_x
 	queue_redraw()
+
+
+## 대시를 쓸 수 있으면 시작하고 true 를 반환. 이동 중이면 그 방향, 가만히 있으면 바라보던 방향으로 돌진
+func try_dash(input: Vector2) -> bool:
+	if dash_cd > 0.0 or dash_t > 0.0:
+		return false
+	dash_dir = input.normalized() if input.length() > 0.2 else dir
+	dash_t = GameData.DASH_TIME
+	dash_cd = GameData.DASH_COOLDOWN * float(stats["dash_cd"])
+	invuln = maxf(invuln, GameData.DASH_IFRAMES)
+	return true
+
+
+## 재충전 진행도 (1 이면 사용 가능)
+func dash_ready_ratio() -> float:
+	var total := GameData.DASH_COOLDOWN * float(stats["dash_cd"])
+	if total <= 0.0:
+		return 1.0
+	return clampf(1.0 - dash_cd / total, 0.0, 1.0)
 
 
 func heal(amount: float) -> void:
@@ -146,12 +185,26 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, aura_radius * 0.78, a0, a0 + 0.9, 10, Color(ac.r, ac.g, ac.b, 0.55), 2.5)
 			draw_arc(Vector2.ZERO, aura_radius * 0.48, a0 + 1.3, a0 + 2.1, 8, Color(ac.r, ac.g, ac.b, 0.45), 2.0)
 
+	# 대시 잔상: 몸 색깔의 동그란 자국이 점점 사라진다
+	for t in trail:
+		var k := 1.0 - float(t[1]) / 0.28
+		var pos := to_local(t[0] as Vector2)
+		var sc: Color = palette.suit
+		draw_circle(pos + Vector2(0, -2), 9.0 * k + 2.0, Color(sc.r, sc.g, sc.b, 0.35 * k))
+		draw_circle(pos + Vector2(0, -2), 4.0 * k, Color(1, 1, 1, 0.4 * k))
+
 	var bob := -absf(sin(walk_t * 12.0)) * 2.0 if moving else 0.0
 	var step_off := sin(walk_t * 12.0) * 3.0 if moving else 0.0
 	# 부활 직후 무적 중에는 깜빡임
 	var blink := invuln > 0.5 and int(invuln * 12.0) % 2 == 0
 	if not blink:
 		Player.draw_hero(self, palette, bob, step_off, hurt_flash > 0.0)
+
+	# 대시 재충전 표시 (충전 중일 때만)
+	if dash_cd > 0.0:
+		var dw := 26.0
+		draw_rect(Rect2(-dw / 2.0 - 1, 25, dw + 2, 4), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(-dw / 2.0, 26, dw * dash_ready_ratio(), 2), Color(0.5, 0.9, 1.0))
 
 	# 체력바 (캐릭터가 뒤집혀도 항상 같은 위치)
 	if hp < max_hp:

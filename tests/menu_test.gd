@@ -36,6 +36,24 @@ func _ready() -> void:
 	p2.setup("miyu")
 	print("부활 횟수 %d (기대 1), 미유 쿨타임 배율 %.2f (기대 0.90)" % [p2.revives, p2.stats["cooldown"]])
 
+	# 대시: 시작, 무적, 재사용 대기, 상점 강화 반영
+	var p3 := Player.new()
+	p3.setup("coco")
+	p3.position = Vector2.ZERO
+	var started: bool = p3.try_dash(Vector2.RIGHT)
+	var again: bool = p3.try_dash(Vector2.RIGHT)
+	for i in 12:
+		p3.step(0.016, Vector2.ZERO)
+	print("대시 시작 %s (기대 true), 연속 사용 %s (기대 false), 이동 %d px (기대 약 150), 무적 %s" % [started, again, int(p3.position.x), p3.invuln > 0.0])
+	for i in 100:
+		p3.step(0.016, Vector2.ZERO)
+	print("1.6초 뒤 재사용 가능 %s (기대 true)" % p3.try_dash(Vector2.LEFT))
+	save.upgrades["dash"] = 3
+	var p4 := Player.new()
+	p4.setup("coco")
+	p4.try_dash(Vector2.RIGHT)
+	print("대시 충전 3단계 재사용 시간 %.2f초 (기대 1.14)" % p4.dash_cd)
+
 	# 보상 계산
 	print("보상 예시: 동전 50, 처치 800, 5분, 패배 = %d / 승리 = %d" % [GameData.run_reward(50, 800, 300.0, false), GameData.run_reward(50, 800, 600.0, true)])
 	get_tree().quit()

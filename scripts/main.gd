@@ -25,6 +25,8 @@ var _frame := 0
 var last_hit_by := ""
 var reaction_counts: Dictionary = {}
 var stress := 0
+var dashes := 0
+var log_dash := false
 var demo_reaction := ""
 var _demo_t := 1.0
 var reward := 0
@@ -100,6 +102,7 @@ func _parse_debug_args() -> void:
 	hold = "--hold" in args
 	hold_chest = "--hold-chest" in args
 	god = "--god" in args
+	log_dash = "--log-dash" in args
 	for a in args:
 		if a.begins_with("--stress="):
 			stress = int(a.substr(9))
@@ -132,6 +135,7 @@ func _setup_input() -> void:
 		"move_right": [KEY_D, KEY_RIGHT],
 		"move_up": [KEY_W, KEY_UP],
 		"move_down": [KEY_S, KEY_DOWN],
+		"dash": [KEY_SPACE, KEY_SHIFT],
 	}
 	for action: String in keys:
 		if not InputMap.has_action(action):
@@ -141,6 +145,10 @@ func _setup_input() -> void:
 			ev.physical_keycode = k as Key
 			InputMap.action_add_event(action, ev)
 	# 게임패드 왼쪽 스틱
+	for btn: int in [JOY_BUTTON_A, JOY_BUTTON_RIGHT_SHOULDER]:
+		var jb := InputEventJoypadButton.new()
+		jb.button_index = btn as JoyButton
+		InputMap.action_add_event("dash", jb)
 	var axes := {
 		"move_left": [JOY_AXIS_LEFT_X, -1.0], "move_right": [JOY_AXIS_LEFT_X, 1.0],
 		"move_up": [JOY_AXIS_LEFT_Y, -1.0], "move_down": [JOY_AXIS_LEFT_Y, 1.0],
@@ -192,6 +200,7 @@ func _process(delta: float) -> void:
 	if state == State.PLAYING:
 		_update_game(delta)
 	hud.update_info(player, time, kills, gold)
+	hud.set_dash(player.dash_ready_ratio())
 	_update_boss_bar()
 	if bot:
 		_bot_step(delta)
@@ -204,6 +213,10 @@ func _update_game(delta: float) -> void:
 	_frame += 1
 
 	var input := _bot_input() if bot else Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if bot:
+		_bot_dash(input)
+	elif Input.is_action_just_pressed("dash"):
+		_do_dash(input)
 	player.step(delta, input)
 	if god:
 		player.hp = player.max_hp
@@ -565,6 +578,19 @@ func _update_enemies(delta: float) -> void:
 				e.dead = true    # 돌진 무리는 지나가면 조용히 사라짐
 			else:
 				e.position = _edge_pos()
+
+
+## 대시 실행: 성공하면 시작 지점에 먼지 효과와 소리
+func _do_dash(input: Vector2) -> bool:
+	if not player.try_dash(input):
+		return false
+	dashes += 1
+	add_fx(Fx.puff(player.position + Vector2(0, 8), Color(0.85, 0.95, 1.0), 16.0))
+	add_fx(Fx.ring(player.position, Color(0.6, 0.9, 1.0), 44.0, 0.25))
+	Sfx.play("dash", 0.05)
+	if log_dash:
+		print("[dash] %.2f" % time)
+	return true
 
 
 func _hurt_player(amount: float, source: String) -> void:
@@ -1352,6 +1378,17 @@ func _bot_input() -> Vector2:
 	return v.limit_length(1.0)
 
 
+func _bot_dash(input: Vector2) -> void:
+	if player.dash_cd > 0.0:
+		return
+	var close := 0
+	for e in enemies:
+		if not e.dead and e.position.distance_squared_to(player.position) < 58.0 * 58.0:
+			close += 1
+	if close >= 2:
+		_do_dash(input)
+
+
 func _bot_step(delta: float) -> void:
 	if state == State.LEVELUP and not hold:
 		# 사람처럼 무기와 공격 관련 아이템을 우선 선택
@@ -1379,8 +1416,8 @@ func _bot_step(delta: float) -> void:
 		var dmg_info := ""
 		for w in player.weapons:
 			dmg_info += " %s.%d=%d" % [w.id, w.level, int(w.damage_dealt)]
-		print("[bot] %s | LV %d | HP %d/%d | 적 %d | 보석 %d | 처치 %d | %.2fms | 반응 %s |%s" % [
+		print("[bot] %s | LV %d | HP %d/%d | 적 %d | 보석 %d | 처치 %d | %.2fms | 반응 %s | 대시 %d |%s" % [
 			Util.fmt_time(time), player.level, int(player.hp), int(player.max_hp),
-			enemies.size(), gems.size(), kills, avg_ms, str(reaction_counts), dmg_info])
+			enemies.size(), gems.size(), kills, avg_ms, str(reaction_counts), dashes, dmg_info])
 		_bot_frame_us = 0
 		_bot_frames = 0

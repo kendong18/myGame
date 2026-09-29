@@ -18,6 +18,8 @@ var _hp_label: Label
 var _inv_label: Label
 var _banner: Label
 var _banner_t := 0.0
+var _dash_bar: ProgressBar
+var _dash_label: Label
 var _vignette: TextureRect
 var _vignette_a := 0.0
 
@@ -49,6 +51,7 @@ func _ready() -> void:
 	add_child(_root)
 	_build_vignette()
 	_build_top_bar()
+	_build_dash_bar()
 	_build_boss_bar()
 	_build_levelup()
 	_build_chest()
@@ -165,6 +168,40 @@ func _build_top_bar() -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
 	_root.add_child(_banner)
+
+
+func _build_dash_bar() -> void:
+	_dash_label = _label("대시 [Space]", 13, Color(0.8, 0.92, 1.0))
+	_dash_label.anchor_left = 0.5
+	_dash_label.anchor_right = 0.5
+	_dash_label.anchor_top = 1.0
+	_dash_label.anchor_bottom = 1.0
+	_dash_label.offset_left = -80
+	_dash_label.offset_right = 80
+	_dash_label.offset_top = -48
+	_dash_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_root.add_child(_dash_label)
+	_dash_bar = ProgressBar.new()
+	_dash_bar.show_percentage = false
+	_dash_bar.max_value = 1.0
+	_dash_bar.anchor_left = 0.5
+	_dash_bar.anchor_right = 0.5
+	_dash_bar.anchor_top = 1.0
+	_dash_bar.anchor_bottom = 1.0
+	_dash_bar.offset_left = -70
+	_dash_bar.offset_right = 70
+	_dash_bar.offset_top = -26
+	_dash_bar.offset_bottom = -16
+	_dash_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.06, 0.08, 0.16, 0.85)
+	bg.set_corner_radius_all(4)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.5, 0.9, 1.0)
+	fill.set_corner_radius_all(4)
+	_dash_bar.add_theme_stylebox_override("background", bg)
+	_dash_bar.add_theme_stylebox_override("fill", fill)
+	_root.add_child(_dash_bar)
 
 
 func _build_boss_bar() -> void:
@@ -308,6 +345,14 @@ func update_info(player: Player, time: float, kills: int, gold: int) -> void:
 	_kill_label.text = "처치 %d" % kills
 	_gold_label.text = "골드 %d" % gold
 	_hp_label.text = "HP %d / %d" % [ceili(maxf(player.hp, 0.0)), int(player.max_hp)]
+
+
+## 대시 재충전 표시. 1 이면 사용 가능
+func set_dash(ratio: float) -> void:
+	_dash_bar.value = ratio
+	var ready := ratio >= 1.0
+	_dash_label.text = "대시 [Space]  준비됨" if ready else "대시 [Space]"
+	_dash_label.modulate = Color(1, 1, 1, 1.0) if ready else Color(1, 1, 1, 0.6)
 
 
 func flash_damage(strength: float = 1.0) -> void:

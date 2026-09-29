@@ -173,6 +173,11 @@ static func build_sfx() -> Dictionary:
 	out["eshot"] = to_stream(b)
 
 	b = new_buf(0.22)
+	add_noise(b, 0.0, 0.18, 0.9, 0.75, true, 1.4)
+	add_tone(b, 0.0, 0.16, 420.0, "tri", 0.25, 900.0)
+	out["dash"] = to_stream(b)
+
+	b = new_buf(0.22)
 	add_tone(b, 0.0, 0.14, 1500.0, "tri", 0.4, -1000.0)
 	add_tone(b, 0.0, 0.09, 2300.0, "square", 0.12, -1600.0)
 	add_noise(b, 0.0, 0.1, 0.35, 0.8, true, 2.0)

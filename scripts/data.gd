@@ -13,6 +13,12 @@ const BASE_SPEED := 150.0        # 플레이어 기본 이동 속도
 const BASE_MAGNET := 60.0        # 경험치 보석 기본 획득 범위
 const BASE_HP := 100.0
 
+# 대시: 짧게 돌진하며 잠깐 무적. 속도 x 시간 = 이동 거리
+const DASH_TIME := 0.16
+const DASH_SPEED := 950.0        # 약 150px 이동
+const DASH_COOLDOWN := 1.5       # 상점의 "대시 충전" 강화로 줄어듦
+const DASH_IFRAMES := 0.3        # 돌진 시작 후 무적 시간
+
 # ── 속성과 반응 ─────────────────────────────
 # 무기마다 속성이 있고, 적에게 맞히면 상태가 붙는다.
 # 이미 다른 속성의 상태가 붙어 있는 적을 맞히면 반응이 터진다.
@@ -338,6 +344,7 @@ const SHOP := [
 	{"id": "growth", "name": "성장", "desc": "경험치 +3%", "max": 5, "cost": 600, "stat": "growth", "per": 0.03},
 	{"id": "greed", "name": "탐욕", "desc": "골드 획득 +10%", "max": 5, "cost": 150, "stat": "greed", "per": 0.1},
 	{"id": "luck", "name": "행운", "desc": "행운 +10%", "max": 3, "cost": 400, "stat": "luck", "per": 0.1},
+	{"id": "dash", "name": "대시 충전", "desc": "대시 재사용 시간 -8%", "max": 3, "cost": 250, "stat": "dash_cd", "per": -0.08},
 	{"id": "revival", "name": "부활", "desc": "사망 시 1회 부활", "max": 1, "cost": 1000, "stat": "revival", "per": 1.0},
 ]
 
