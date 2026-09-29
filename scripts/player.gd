@@ -28,7 +28,14 @@ var damage_taken := 0.0
 
 # 대시
 var dash_t := 0.0                # 돌진이 남은 시간
-var dash_cd := 0.0               # 다시 쓸 수 있을 때까지 남은 시간
+var dash_cd := 0.0               # 다음 충전까지 남은 시간
+var dash_max := 1                # 모아 둘 수 있는 대시 횟수
+var dash_charges := 1
+var dash_just_ended := false     # 이번 프레임에 대시가 끝났는가 (Main 이 확인하고 되돌린다)
+var haste_t := 0.0               # 대시 뒤 무기 쿨타임이 줄어드는 시간
+var ability := ""                # 캐릭터 고유 능력
+var beams: Array = []            # 냉각 레이저가 매 프레임 채워 넣는 빔 정보
+var shields: Array = []          # 반사 방패가 채워 넣는 방패 정보
 var dash_dir := Vector2.RIGHT
 var trail: Array = []            # 잔상 [월드 위치, 나이]
 
@@ -39,6 +46,9 @@ func setup(char_id: String) -> void:
 	recalc_stats()
 	hp = max_hp
 	revives = int(stats["revival"])
+	ability = str(GameData.character(char_id).get("ability", ""))
+	dash_max = 2 if ability == "dash2" else 1
+	dash_charges = dash_max
 
 
 func _ready() -> void:
@@ -112,6 +122,8 @@ func step(delta: float, input: Vector2) -> void:
 	if dash_t > 0.0:
 		dash_t -= delta
 		position += dash_dir * GameData.DASH_SPEED * delta
+		if dash_t <= 0.0:
+			dash_just_ended = true
 		trail.append([position, 0.0])
 		moving = true
 		walk_t += delta
@@ -119,7 +131,15 @@ func step(delta: float, input: Vector2) -> void:
 			face_x = signf(dash_dir.x)
 	else:
 		position += input * GameData.BASE_SPEED * float(stats["move_speed"]) * delta
-	dash_cd = maxf(0.0, dash_cd - delta)
+	# 대시 충전: 모아 둔 횟수가 가득 차지 않았다면 하나씩 채운다
+	if dash_charges < dash_max:
+		dash_cd -= delta
+		if dash_cd <= 0.0:
+			dash_charges += 1
+			dash_cd = _dash_total() if dash_charges < dash_max else 0.0
+	else:
+		dash_cd = 0.0
+	haste_t = maxf(0.0, haste_t - delta)
 	for t in trail:
 		t[1] = float(t[1]) + delta
 	while not trail.is_empty() and float(trail[0][1]) > 0.28:
@@ -138,23 +158,43 @@ func step(delta: float, input: Vector2) -> void:
 	queue_redraw()
 
 
+func _dash_total() -> float:
+	return GameData.DASH_COOLDOWN * float(stats["dash_cd"])
+
+
 ## 대시를 쓸 수 있으면 시작하고 true 를 반환. 이동 중이면 그 방향, 가만히 있으면 바라보던 방향으로 돌진
 func try_dash(input: Vector2) -> bool:
-	if dash_cd > 0.0 or dash_t > 0.0:
+	if dash_charges <= 0 or dash_t > 0.0:
 		return false
+	dash_charges -= 1
+	if dash_cd <= 0.0:
+		dash_cd = _dash_total()
 	dash_dir = input.normalized() if input.length() > 0.2 else dir
 	dash_t = GameData.DASH_TIME
-	dash_cd = GameData.DASH_COOLDOWN * float(stats["dash_cd"])
 	invuln = maxf(invuln, GameData.DASH_IFRAMES)
+	if ability == "dash_haste":
+		haste_t = 1.5
 	return true
 
 
-## 재충전 진행도 (1 이면 사용 가능)
-func dash_ready_ratio() -> float:
-	var total := GameData.DASH_COOLDOWN * float(stats["dash_cd"])
+## 다음 대시가 충전되는 진행도 (1 이면 가득)
+func dash_progress() -> float:
+	if dash_charges >= dash_max:
+		return 1.0
+	var total := _dash_total()
 	if total <= 0.0:
 		return 1.0
 	return clampf(1.0 - dash_cd / total, 0.0, 1.0)
+
+
+## 지금 대시를 쓸 수 있는가 (HUD 표시용)
+func dash_ready_ratio() -> float:
+	return 1.0 if dash_charges >= 1 else dash_progress()
+
+
+## 무기 쿨타임 배율: 패시브 효과에 더해, 정찰 가속 상태면 30% 더 짧아진다
+func cd_mult() -> float:
+	return float(stats["cooldown"]) * (0.7 if haste_t > 0.0 else 1.0)
 
 
 func heal(amount: float) -> void:
@@ -193,6 +233,29 @@ func _draw() -> void:
 		draw_circle(pos + Vector2(0, -2), 9.0 * k + 2.0, Color(sc.r, sc.g, sc.b, 0.35 * k))
 		draw_circle(pos + Vector2(0, -2), 4.0 * k, Color(1, 1, 1, 0.4 * k))
 
+	# 냉각 레이저 빔: 캐릭터가 뒤집혀 있으므로 x 방향을 맞춰 준다
+	for b: Dictionary in beams:
+		var d: Vector2 = b.dir
+		var ld := Vector2(d.x * face_x, d.y)
+		var blen: float = b.len
+		var bw: float = b.w
+		var bc: Color = b.col
+		draw_line(Vector2.ZERO, ld * blen, Color(bc.r, bc.g, bc.b, 0.2), bw * 1.8)
+		draw_line(Vector2.ZERO, ld * blen, Color(bc.r, bc.g, bc.b, 0.8), bw * 0.75)
+		draw_line(Vector2.ZERO, ld * blen, Color(1, 1, 1, 0.9), maxf(2.0, bw * 0.28))
+		draw_circle(ld * blen, bw * 0.55, Color(bc.r, bc.g, bc.b, 0.55))
+	# 반사 방패: 호 모양의 에너지 방벽
+	for sh: Dictionary in shields:
+		var la: float = float(sh.angle) if face_x > 0.0 else PI - float(sh.angle)
+		var span: float = sh.span
+		var sr: float = sh.radius
+		var sc: Color = sh.col
+		draw_arc(Vector2.ZERO, sr, la - span / 2.0, la + span / 2.0, 28, Color(sc.r, sc.g, sc.b, 0.22), 14.0)
+		draw_arc(Vector2.ZERO, sr, la - span / 2.0, la + span / 2.0, 28, Color(sc.r, sc.g, sc.b, 0.9), 5.0)
+		draw_arc(Vector2.ZERO, sr + 2.0, la - span / 2.0, la + span / 2.0, 28, Color(1, 1, 1, 0.75), 1.5)
+		for end_a in [la - span / 2.0, la + span / 2.0]:
+			draw_circle(Vector2.from_angle(end_a) * sr, 4.5, Color(1, 1, 1, 0.9))
+
 	var bob := -absf(sin(walk_t * 12.0)) * 2.0 if moving else 0.0
 	var step_off := sin(walk_t * 12.0) * 3.0 if moving else 0.0
 	# 부활 직후 무적 중에는 깜빡임
@@ -201,10 +264,13 @@ func _draw() -> void:
 		Player.draw_hero(self, palette, bob, step_off, hurt_flash > 0.0)
 
 	# 대시 재충전 표시 (충전 중일 때만)
-	if dash_cd > 0.0:
+	if dash_charges < dash_max:
 		var dw := 26.0
 		draw_rect(Rect2(-dw / 2.0 - 1, 25, dw + 2, 4), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(-dw / 2.0, 26, dw * dash_ready_ratio(), 2), Color(0.5, 0.9, 1.0))
+		draw_rect(Rect2(-dw / 2.0, 26, dw * dash_progress(), 2), Color(0.5, 0.9, 1.0))
+		if dash_max > 1:
+			for i in dash_charges:
+				draw_circle(Vector2(-4.0 + i * 8.0, 33), 2.2, Color(0.6, 0.95, 1.0))
 
 	# 체력바 (캐릭터가 뒤집혀도 항상 같은 위치)
 	if hp < max_hp:

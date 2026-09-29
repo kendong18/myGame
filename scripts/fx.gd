@@ -2,7 +2,7 @@ class_name Fx
 extends Node2D
 ## 짧게 나타났다 사라지는 이펙트와 피해 숫자. Main 이 step() 을 호출한다.
 
-enum Kind { PUFF, RING, TEXT, SLASH, BOLT }
+enum Kind { PUFF, RING, TEXT, SLASH, BOLT, BEAM }
 
 var kind: Kind = Kind.PUFF
 var life := 0.3
@@ -90,6 +90,22 @@ static func arc(from: Vector2, to: Vector2, col: Color = Color(1.0, 0.95, 0.5)) 
 	return f
 
 
+## 직선 광선. telegraph 가 true 면 발사 전 예고선, false 면 발사 순간의 굵은 광선
+static func beam(pos: Vector2, ang: float, length: float, width: float, col: Color, duration: float, telegraph: bool) -> Fx:
+	var f := Fx.new()
+	f.kind = Kind.BEAM
+	f.position = pos
+	f.rotation = ang
+	f.w = length
+	f.h = width
+	f.color = col
+	f.side = 1.0 if telegraph else 0.0
+	f.life = duration
+	f.max_life = duration
+	f.z_index = 14
+	return f
+
+
 ## 채찍 궤적
 static func slash(pos: Vector2, width: float, height: float, dir: float, col: Color) -> Fx:
 	var f := Fx.new()
@@ -163,6 +179,18 @@ func _draw() -> void:
 			])
 			draw_colored_polygon(poly, Color(color.r, color.g, color.b, a * 0.75))
 			draw_line(Vector2(-side * hw, 0), Vector2(side * hw, 0), Color(1, 1, 1, a), 2.0)
+		Kind.BEAM:
+			if side > 0.5:
+				# 예고선: 점점 진해지며 깜빡인다
+				var pulse := 0.4 + 0.6 * t
+				draw_line(Vector2.ZERO, Vector2(w, 0), Color(color.r, color.g, color.b, color.a * pulse), h)
+				draw_line(Vector2.ZERO, Vector2(w, 0), Color(1, 1, 1, 0.35 * pulse), 1.0)
+			else:
+				var a := 1.0 - t
+				var bh := h * (1.0 - 0.6 * t)
+				draw_line(Vector2.ZERO, Vector2(w, 0), Color(color.r, color.g, color.b, 0.3 * a), bh * 1.8)
+				draw_line(Vector2.ZERO, Vector2(w, 0), Color(color.r, color.g, color.b, 0.9 * a), bh)
+				draw_line(Vector2.ZERO, Vector2(w, 0), Color(1, 1, 1, a), maxf(2.0, bh * 0.35))
 		Kind.BOLT:
 			var a := clampf(life / max_life * 1.5, 0.0, 1.0)
 			draw_polyline(pts, Color(color.r, color.g, color.b, a * 0.35), 12.0)

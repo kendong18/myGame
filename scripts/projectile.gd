@@ -22,6 +22,8 @@ var kb := 1.0
 var managed := false       # true 면 무기가 위치를 직접 지정 (위성 구슬)
 var evolved := false
 var fade := 1.0
+var aoe := 0.0             # 지뢰의 폭발 반경
+var triggered := false     # 지뢰가 폭발하기로 정해졌는가 (연쇄 폭발)
 
 
 static func make(p_kind: String, pos: Vector2, p_vel: Vector2, dmg: float, p_pierce: int, p_life: float, p_radius: float, p_weapon: Weapon) -> Projectile:
@@ -54,6 +56,10 @@ func _draw() -> void:
 			_draw_orb()
 		"zone":
 			_draw_hotplate()
+		"mine":
+			_draw_mine()
+		"drone":
+			_draw_drone()
 
 
 ## 젤 덩어리: 눈이 달린 말랑한 방울
@@ -158,3 +164,45 @@ func _draw_hotplate() -> void:
 		var h := 9.0 + 7.0 * sin(age * 8.0 + float(i) * 2.1)
 		var bp := Vector2(cos(a) * d, sin(a) * d * 0.78)
 		draw_colored_polygon(PackedVector2Array([bp + Vector2(-3.5, 0), bp + Vector2(3.5, 0), bp + Vector2(0, -h)]), Color(1.0, 0.9, 0.6, 0.7 * fade_t))
+
+
+## 접착 지뢰: 눈이 달린 젤 덩어리. 설치가 끝나면 초록 불이 깜빡인다
+func _draw_mine() -> void:
+	var r := radius
+	var col := color
+	var armed := age >= delay
+	if armed:
+		draw_arc(Vector2.ZERO, aoe, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.10), 1.5)
+	draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.55), r * 0.95, r * 0.32, 14), Color(0, 0, 0, 0.3))
+	var pts := Util.blob(Vector2(0, r * 0.05), r * 0.85, r * 0.8, 14)
+	draw_colored_polygon(pts, Color(0.32, 0.36, 0.5))
+	Util.outline(self, pts, Color(0.1, 0.12, 0.2), 1.5)
+	draw_colored_polygon(Util.ellipse(Vector2(0, -r * 0.35), r * 0.6, r * 0.3, 12), col)
+	draw_circle(Vector2(-r * 0.25, -r * 0.42), r * 0.14, Color(1, 1, 1, 0.7))
+	Util.eye(self, Vector2(-r * 0.28, r * 0.12), r * 0.2)
+	Util.eye(self, Vector2(r * 0.28, r * 0.12), r * 0.2)
+	draw_line(Vector2(0, -r * 0.75), Vector2(0, -r * 1.15), Color(0.6, 0.65, 0.8), 1.5)
+	var on := int(age * 4.0) % 2 == 0
+	var lamp := (Color(0.4, 1.0, 0.5) if on else Color(0.2, 0.5, 0.3)) if armed else Color(1.0, 0.6, 0.3)
+	draw_circle(Vector2(0, -r * 1.2), r * 0.16, lamp)
+
+
+## 정비 드론: 프로펠러가 도는 동그란 로봇
+func _draw_drone() -> void:
+	var r := radius
+	var col := color
+	draw_circle(Vector2.ZERO, r * 1.7, Color(col.r, col.g, col.b, 0.14))
+	var spin_a := age * 34.0
+	for k in 2:
+		var ra := spin_a + PI * float(k)
+		draw_line(Vector2(0, -r * 1.05) + Vector2.from_angle(ra) * r * 0.9, Vector2(0, -r * 1.05) - Vector2.from_angle(ra) * r * 0.9, Color(0.75, 0.8, 0.9, 0.8), 2.0)
+	draw_line(Vector2(0, -r * 1.05), Vector2(0, -r * 0.55), Color(0.5, 0.55, 0.7), 2.0)
+	draw_circle(Vector2.ZERO, r, Color(0.9, 0.93, 1.0))
+	draw_arc(Vector2.ZERO, r, 0.0, TAU, 20, Color(0.15, 0.2, 0.35), 1.5)
+	draw_arc(Vector2.ZERO, r * 0.98, 0.3, PI - 0.3, 10, col, 3.0)
+	draw_circle(Vector2(0, -r * 0.05), r * 0.55, Color(0.13, 0.17, 0.3))
+	draw_circle(Vector2(0, -r * 0.05), r * 0.38, col.lightened(0.2))
+	draw_circle(Vector2(0, -r * 0.05), r * 0.18, Color(0.05, 0.08, 0.15))
+	draw_circle(Vector2(-r * 0.12, -r * 0.2), r * 0.1, Color.WHITE)
+	if evolved:
+		draw_arc(Vector2.ZERO, r * 1.35, 0.0, TAU, 20, Color(1.0, 0.85, 0.5, 0.6), 1.5)

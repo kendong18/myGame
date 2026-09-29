@@ -172,6 +172,22 @@ static func build_sfx() -> Dictionary:
 	add_tone(b, 0.0, 0.13, 300.0, "tri", 0.3, 220.0)
 	out["eshot"] = to_stream(b)
 
+	b = new_buf(0.3)
+	add_noise(b, 0.0, 0.25, 0.7, 0.12, false, 1.8)
+	add_tone(b, 0.0, 0.2, 140.0, "sine", 0.6, -80.0)
+	out["mine"] = to_stream(b)
+
+	b = new_buf(0.7)
+	add_tone(b, 0.0, 0.65, 300.0, "saw", 0.16, 1400.0, 0.05, 0.6)
+	add_tone(b, 0.0, 0.65, 150.0, "sine", 0.3, 700.0, 0.05, 0.6)
+	out["charge"] = to_stream(b)
+
+	b = new_buf(0.5)
+	add_noise(b, 0.0, 0.3, 0.9, 0.9, true, 1.6)
+	add_tone(b, 0.0, 0.4, 1800.0, "saw", 0.35, -1600.0, 0.002, 2.0)
+	add_tone(b, 0.0, 0.3, 90.0, "sine", 0.7, -40.0)
+	out["rail"] = to_stream(b)
+
 	b = new_buf(0.22)
 	add_noise(b, 0.0, 0.18, 0.9, 0.75, true, 1.4)
 	add_tone(b, 0.0, 0.16, 420.0, "tri", 0.25, 900.0)

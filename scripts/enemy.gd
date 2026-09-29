@@ -30,6 +30,7 @@ var spin := 0.0
 # 속성 상태 (원소 이름 -> 남은 시간), 정지, 화상
 var status: Dictionary = {}
 var stun := 0.0
+var suction := 0.0              # 진공청소기에 붙잡혀 느려지는 시간
 var burn_dps := 0.0
 var burn_tick := 0.0
 var burn_src: Weapon = null
@@ -58,7 +59,7 @@ func setup(k: String, hp_mul: float, is_elite: bool = false) -> void:
 		speed = float(d.speed)
 	elif is_elite:
 		elite = true
-		max_hp *= 10.0
+		max_hp *= GameData.ELITE_HP_MUL
 		hp = max_hp
 		radius *= 1.5
 		damage *= 1.3
@@ -76,6 +77,8 @@ func speed_mult() -> float:
 		m *= 0.65
 	if status.has("cold"):
 		m *= 0.5
+	if suction > 0.0:
+		m *= 0.55
 	if boss != "":
 		m = 1.0 - (1.0 - m) * 0.5
 	return m

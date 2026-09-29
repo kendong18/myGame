@@ -13,6 +13,22 @@ const BASE_SPEED := 150.0        # 플레이어 기본 이동 속도
 const BASE_MAGNET := 60.0        # 경험치 보석 기본 획득 범위
 const BASE_HP := 100.0
 
+# 난이도 (위험도 0 기준). 위험도 단계는 여기에 곱해진다.
+const HP_TIME_SCALE := 130.0     # 적 체력이 (1 + 시간/이 값) 배로 늘어남
+const DAMAGE_TIME_SCALE := 1200.0
+const SPAWN_MUL := 1.15          # 적 등장 속도 배율
+const ELITE_HP_MUL := 14.0
+
+# 위험도: 마왕을 처음 쓰러뜨리면 다음 단계가 열린다. hp/count/damage/speed/boss_hp 는 적 배율, gold 는 보상 배율
+const RISK_TIERS := [
+	{"hp": 1.0, "count": 1.0, "damage": 1.0, "speed": 1.0, "boss_hp": 1.0, "gold": 1.0},
+	{"hp": 1.3, "count": 1.1, "damage": 1.1, "speed": 1.0, "boss_hp": 1.3, "gold": 1.25},
+	{"hp": 1.6, "count": 1.2, "damage": 1.2, "speed": 1.05, "boss_hp": 1.6, "gold": 1.5},
+	{"hp": 1.9, "count": 1.3, "damage": 1.35, "speed": 1.05, "boss_hp": 2.0, "gold": 1.75},
+	{"hp": 2.3, "count": 1.45, "damage": 1.5, "speed": 1.1, "boss_hp": 2.5, "gold": 2.0},
+	{"hp": 2.8, "count": 1.6, "damage": 1.7, "speed": 1.15, "boss_hp": 3.0, "gold": 2.5},
+]
+
 # 대시: 짧게 돌진하며 잠깐 무적. 속도 x 시간 = 이동 거리
 const DASH_TIME := 0.16
 const DASH_SPEED := 950.0        # 약 150px 이동
@@ -108,7 +124,7 @@ const WEAPONS := {
 	},
 	"vacuum": {
 		"name": "진공청소기", "type": "aura",
-		"desc": "주변의 적을 빨아들이며 지속 피해를 줍니다. (속성 없음)",
+		"desc": "주변의 적을 끌어모아 느리게 만들며 지속 피해를 줍니다. (속성 없음)",
 		"base": {"damage": 5.0, "interval": 0.45, "radius": 60.0, "knockback": 1.2},
 		"levels": [
 			{"radius": 12.0, "damage": 2.0, "text": "범위 +20%, 피해 +2"},
@@ -167,6 +183,83 @@ const WEAPONS := {
 		"evolve": {"passive": "cloner", "into": "tesla_storm"},
 	},
 
+	# ── 새로운 방식의 무기 ──
+	"laser": {
+		"name": "냉각 레이저", "type": "beam", "element": "cold",
+		"desc": "주위를 천천히 도는 냉각 빔이 닿는 적을 계속 얼립니다.",
+		"base": {"damage": 5.0, "interval": 0.3, "amount": 1, "length": 200.0, "width": 16.0, "speed": 1.2, "area": 1.0},
+		"levels": [
+			{"length": 40.0, "text": "길이 +40"},
+			{"damage": 3.0, "text": "피해 +3"},
+			{"amount": 1, "text": "빔 +1개"},
+			{"speed": 0.35, "damage": 3.0, "text": "회전 속도 +30%, 피해 +3"},
+			{"length": 50.0, "width": 6.0, "text": "길이 +50, 굵기 +6"},
+			{"amount": 1, "text": "빔 +1개"},
+			{"damage": 6.0, "text": "피해 +6"},
+		],
+		"evolve": {"passive": "cell", "into": "twin_laser"},
+	},
+	"mine": {
+		"name": "접착 지뢰", "type": "mine", "element": "gel",
+		"desc": "지나간 자리에 지뢰를 깔아 둡니다. 밟는 적은 끈적한 젤과 함께 폭발하고, 이웃한 지뢰도 연쇄로 터집니다.",
+		"base": {"damage": 28.0, "cooldown": 2.6, "amount": 1, "radius": 70.0, "duration": 14.0, "cap": 5.0},
+		"levels": [
+			{"damage": 14.0, "text": "피해 +14"},
+			{"cooldown": -0.4, "text": "쿨타임 -0.4초"},
+			{"amount": 1, "text": "지뢰 +1개"},
+			{"radius": 15.0, "damage": 14.0, "text": "폭발 범위 +15, 피해 +14"},
+			{"cap": 3.0, "cooldown": -0.3, "text": "설치 한도 +3, 쿨타임 -0.3초"},
+			{"amount": 1, "text": "지뢰 +1개"},
+			{"damage": 24.0, "text": "피해 +24"},
+		],
+		"evolve": {"passive": "jet", "into": "gel_minefield"},
+	},
+	"shield": {
+		"name": "반사 방패", "type": "shield", "element": "shock",
+		"desc": "이동하는 방향에 에너지 방패를 세웁니다. 적탄을 막고, 닿는 적을 전기로 밀어냅니다.",
+		"base": {"damage": 8.0, "interval": 0.35, "amount": 1, "span": 1.4, "radius": 40.0, "knockback": 1.6, "area": 1.0},
+		"levels": [
+			{"span": 0.3, "text": "방패 폭 +20%"},
+			{"damage": 5.0, "text": "피해 +5"},
+			{"amount": 1, "text": "방패 +1개"},
+			{"radius": 8.0, "damage": 5.0, "text": "방패 범위 +8, 피해 +5"},
+			{"span": 0.3, "text": "방패 폭 +20%"},
+			{"damage": 8.0, "text": "피해 +8"},
+			{"amount": 1, "text": "방패 +1개"},
+		],
+		"evolve": {"passive": "suit", "into": "fortress"},
+	},
+	"railgun": {
+		"name": "레일건", "type": "rail", "element": "plasma",
+		"desc": "화면에서 가장 단단한 적을 조준해 잠시 충전한 뒤 모든 것을 꿰뚫는 광선을 쏩니다.",
+		"base": {"damage": 55.0, "cooldown": 4.5, "amount": 1, "width": 18.0, "charge": 0.7},
+		"levels": [
+			{"damage": 25.0, "text": "피해 +25"},
+			{"cooldown": -0.6, "text": "쿨타임 -0.6초"},
+			{"amount": 1, "text": "광선 +1개"},
+			{"width": 8.0, "damage": 20.0, "text": "굵기 +8, 피해 +20"},
+			{"damage": 30.0, "text": "피해 +30"},
+			{"cooldown": -0.6, "text": "쿨타임 -0.6초"},
+			{"amount": 1, "text": "광선 +1개"},
+		],
+		"evolve": {"passive": "catalyst", "into": "plasma_cannon"},
+	},
+	"drone": {
+		"name": "정비 드론", "type": "drone", "element": "heat",
+		"desc": "드론이 스스로 날아가 가까운 적을 공격하고 돌아옵니다.",
+		"base": {"damage": 9.0, "cooldown": 1.6, "amount": 1, "speed": 380.0, "range": 380.0, "area": 1.0},
+		"levels": [
+			{"amount": 1, "text": "드론 +1대"},
+			{"damage": 5.0, "text": "피해 +5"},
+			{"cooldown": -0.3, "text": "공격 간격 -0.3초"},
+			{"amount": 1, "text": "드론 +1대"},
+			{"damage": 6.0, "speed": 80.0, "text": "피해 +6, 속도 +80"},
+			{"cooldown": -0.3, "text": "공격 간격 -0.3초"},
+			{"amount": 1, "text": "드론 +1대"},
+		],
+		"evolve": {"passive": "chip", "into": "drone_fleet"},
+	},
+
 	# ── 진화 무기 (레벨업 선택지에는 나오지 않고, 보급 상자로만 얻음) ──
 	"plasma_torch": {
 		"name": "플라즈마 토치", "type": "whip", "element": "heat", "evolved": true,
@@ -216,6 +309,36 @@ const WEAPONS := {
 		"base": {"damage": 45.0, "cooldown": 2.8, "amount": 7, "area": 2.2},
 		"levels": [],
 	},
+	"twin_laser": {
+		"name": "이중 나선 레이저", "type": "beam", "element": "cold", "evolved": true,
+		"desc": "네 갈래 빔이 서로 반대로 돌며 사방을 훑습니다.",
+		"base": {"damage": 12.0, "interval": 0.22, "amount": 4, "length": 300.0, "width": 22.0, "speed": 1.6, "counter": 1, "area": 1.0},
+		"levels": [],
+	},
+	"gel_minefield": {
+		"name": "젤 지뢰밭", "type": "mine", "element": "gel", "evolved": true,
+		"desc": "지뢰를 잔뜩 뿌리고 연쇄 폭발로 쓸어버립니다.",
+		"base": {"damage": 55.0, "cooldown": 1.6, "amount": 3, "radius": 100.0, "duration": 18.0, "cap": 16.0},
+		"levels": [],
+	},
+	"fortress": {
+		"name": "요새 방벽", "type": "shield", "element": "shock", "evolved": true,
+		"desc": "넓은 방벽이 적탄을 되받아 쏘고 적을 튕겨냅니다.",
+		"base": {"damage": 22.0, "interval": 0.3, "amount": 3, "span": 2.2, "radius": 54.0, "knockback": 2.2, "reflect": 1.0, "area": 1.0},
+		"levels": [],
+	},
+	"plasma_cannon": {
+		"name": "플라즈마 캐논", "type": "rail", "element": "plasma", "evolved": true,
+		"desc": "굵은 플라즈마 광선 세 줄기를 연달아 발사합니다.",
+		"base": {"damage": 150.0, "cooldown": 2.6, "amount": 3, "width": 36.0, "charge": 0.5},
+		"levels": [],
+	},
+	"drone_fleet": {
+		"name": "무인 편대", "type": "drone", "element": "heat", "evolved": true,
+		"desc": "다섯 대의 드론이 쉴 새 없이 적을 덮칩니다.",
+		"base": {"damage": 22.0, "cooldown": 0.8, "amount": 5, "speed": 520.0, "range": 480.0, "area": 1.2},
+		"levels": [],
+	},
 }
 
 # ── 패시브 아이템 ───────────────────────────
@@ -248,8 +371,8 @@ const ENEMIES := {
 	"hound": {"name": "로봇 멍멍이", "hp": 55.0, "speed": 88.0, "damage": 9.0, "radius": 13.0, "xp": 6, "kb_resist": 0.4, "color": Color(0.55, 0.85, 0.85)},
 	"cube": {"name": "박스 로봇", "hp": 110.0, "speed": 32.0, "damage": 12.0, "radius": 18.0, "xp": 10, "kb_resist": 0.85, "color": Color(0.55, 0.62, 0.75)},
 	# 보스
-	"jellyking": {"name": "젤리 킹", "hp": 3500.0, "speed": 72.0, "damage": 20.0, "radius": 26.0, "xp": 200, "kb_resist": 0.97, "color": Color(0.45, 0.9, 0.65), "boss": "jellyking"},
-	"core": {"name": "폭주 메인 컴퓨터", "hp": 18000.0, "speed": 66.0, "damage": 30.0, "radius": 36.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.8, 0.3, 0.5), "boss": "core"},
+	"jellyking": {"name": "젤리 킹", "hp": 5500.0, "speed": 72.0, "damage": 20.0, "radius": 26.0, "xp": 200, "kb_resist": 0.97, "color": Color(0.45, 0.9, 0.65), "boss": "jellyking"},
+	"core": {"name": "폭주 메인 컴퓨터", "hp": 30000.0, "speed": 66.0, "damage": 30.0, "radius": 36.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.8, 0.3, 0.5), "boss": "core"},
 }
 
 # 분(minute)별 웨이브: 등장 적 종류 / 초당 스폰 수 / 최대 동시 적 수
@@ -269,10 +392,13 @@ const WAVES := [
 # 시간별 이벤트. elite: 엘리트 / ring: 포위 / stream: 돌진 / boss: 보스
 const EVENTS := [
 	{"time": 55.0, "type": "elite", "count": 1},
+	{"time": 90.0, "type": "elite", "count": 1},
 	{"time": 100.0, "type": "ring", "enemy": "moth", "count": 36, "text": "나방 떼가 몰려온다!"},
 	{"time": 120.0, "type": "elite", "count": 1},
 	{"time": 170.0, "type": "stream", "enemy": "moth", "count": 40},
+	{"time": 150.0, "type": "elite", "count": 1},
 	{"time": 180.0, "type": "elite", "count": 1},
+	{"time": 210.0, "type": "elite", "count": 1},
 	{"time": 230.0, "type": "ring", "enemy": "jelly", "count": 40, "text": "젤리들에게 포위당했다!"},
 	{"time": 240.0, "type": "elite", "count": 1},
 	{"time": 300.0, "type": "boss", "enemy": "jellyking"},
@@ -295,36 +421,42 @@ const CHARACTERS := [
 	{
 		"id": "coco", "name": "우주인 코코", "weapon": "torch", "cost": 0,
 		"desc": "최대 체력 +20%, 방어 +1",
+		"ability": "dash2", "ability_desc": "재빠른 발: 대시를 2번까지 모아 둘 수 있다",
 		"bonus": {"max_hp_mul": 0.2, "armor": 1.0},
 		"palette": {"style": "human", "suit": Color(0.38, 0.6, 0.95), "suit_dark": Color(0.25, 0.42, 0.75), "helmet": Color(0.95, 0.96, 1.0), "accent": Color(1.0, 0.55, 0.35)},
 	},
 	{
 		"id": "miyu", "name": "고양이 우주인 미유", "weapon": "gelgun", "cost": 0,
 		"desc": "쿨타임 -10%, 경험치 +10%",
+		"ability": "gel_spread", "ability_desc": "끈적한 발톱: 젤이 붙으면 주변 적 2마리에게도 번진다",
 		"bonus": {"cooldown": -0.1, "growth": 0.1},
 		"palette": {"style": "cat", "suit": Color(0.78, 0.55, 0.95), "suit_dark": Color(0.58, 0.36, 0.78), "helmet": Color(1.0, 0.95, 1.0), "accent": Color(1.0, 0.7, 0.85)},
 	},
 	{
 		"id": "scout", "name": "탐사 로봇 삐삐", "weapon": "bolt", "cost": 300,
 		"desc": "이동 속도 +20%, 투사체 속도 +10%",
+		"ability": "dash_haste", "ability_desc": "정찰 가속: 대시 후 1.5초 동안 무기 쿨타임 30% 감소",
 		"bonus": {"move_speed": 0.2, "proj_speed": 0.1},
 		"palette": {"style": "robot", "suit": Color(0.45, 0.85, 0.6), "suit_dark": Color(0.28, 0.62, 0.42), "helmet": Color(0.85, 0.95, 0.9), "accent": Color(1.0, 0.9, 0.3)},
 	},
 	{
 		"id": "ppo", "name": "청소 로봇 뽀송", "weapon": "vacuum", "cost": 500,
 		"desc": "초당 체력 회복 +0.5, 범위 +10%",
+		"ability": "gem_heal", "ability_desc": "빨아들이기: 경험치 보석을 주울 때마다 체력 회복",
 		"bonus": {"recovery": 0.5, "area": 0.1},
 		"palette": {"style": "round", "suit": Color(1.0, 0.78, 0.35), "suit_dark": Color(0.9, 0.6, 0.2), "helmet": Color(1.0, 0.95, 0.8), "accent": Color(0.4, 0.85, 1.0)},
 	},
 	{
 		"id": "buru", "name": "곰돌이 정비사 부루", "weapon": "canister", "cost": 800,
 		"desc": "공격력 +20%, 이동 속도 -10%",
+		"ability": "dash_slam", "ability_desc": "착지 충격: 대시가 끝나는 자리에서 주변 적에게 충격파",
 		"bonus": {"might": 0.2, "move_speed": -0.1},
 		"palette": {"style": "bear", "suit": Color(0.95, 0.55, 0.4), "suit_dark": Color(0.75, 0.38, 0.28), "helmet": Color(0.98, 0.93, 0.85), "accent": Color(0.55, 0.38, 0.28)},
 	},
 	{
 		"id": "owl", "name": "올빼미 박사 오린", "weapon": "tesla", "cost": 1200,
 		"desc": "행운 +20%, 획득 범위 +30%",
+		"ability": "reaction_xp", "ability_desc": "반응 연구: 속성 반응이 터질 때마다 경험치 획득",
 		"bonus": {"luck": 0.2, "magnet": 0.3},
 		"palette": {"style": "owl", "suit": Color(0.35, 0.45, 0.85), "suit_dark": Color(0.22, 0.3, 0.62), "helmet": Color(0.92, 0.93, 1.0), "accent": Color(1.0, 0.85, 0.35)},
 	},
@@ -368,8 +500,13 @@ static func shop_cost(item: Dictionary, level: int) -> int:
 
 
 ## 한 판이 끝났을 때 받는 골드: 주운 동전 + 처치 수 + 생존 시간 + 승리 보너스
-static func run_reward(coins: int, kills: int, time: float, won: bool) -> int:
-	return coins + int(kills / 5.0) + int(time / 60.0) * 15 + (500 if won else 0)
+static func run_reward(coins: int, kills: int, time: float, won: bool, tier: int = 0) -> int:
+	var base := coins + int(kills / 5.0) + int(time / 60.0) * 15 + (500 if won else 0)
+	return int(round(float(base) * float(RISK_TIERS[clampi(tier, 0, RISK_TIERS.size() - 1)].gold)))
+
+
+static func risk(tier: int) -> Dictionary:
+	return RISK_TIERS[clampi(tier, 0, RISK_TIERS.size() - 1)]
 
 
 static func element_color(element: String) -> Color:

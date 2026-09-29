@@ -25,6 +25,8 @@ var _frame := 0
 var last_hit_by := ""
 var reaction_counts: Dictionary = {}
 var stress := 0
+var risk_tier := 0
+var risk: Dictionary = {}
 var dashes := 0
 var log_dash := false
 var demo_reaction := ""
@@ -89,7 +91,10 @@ func _ready() -> void:
 	hud.menu_pressed.connect(_to_menu)
 
 	player.add_weapon(str(GameData.character(char_id).weapon))
+	risk_tier = SaveData.risk_tier
+	risk = GameData.risk(risk_tier)
 	_parse_debug_args()
+	hud.set_risk(risk_tier)
 	_refresh_inventory()
 	Sfx.play_music("game")
 	if "--show-pause" in OS.get_cmdline_user_args():
@@ -106,6 +111,9 @@ func _parse_debug_args() -> void:
 	for a in args:
 		if a.begins_with("--stress="):
 			stress = int(a.substr(9))
+		elif a.begins_with("--risk="):
+			risk_tier = clampi(int(a.substr(7)), 0, GameData.RISK_TIERS.size() - 1)    # 테스트 전용
+			risk = GameData.risk(risk_tier)
 		elif a.begins_with("--demo-reaction="):
 			demo_reaction = a.substr(16)    # 테스트 전용: 지정한 반응을 계속 일으킨다
 	for a in args:
@@ -180,7 +188,7 @@ func _process(delta: float) -> void:
 	if state == State.PLAYING:
 		_update_game(delta)
 	hud.update_info(player, time, kills, gold)
-	hud.set_dash(player.dash_ready_ratio())
+	hud.set_dash(player.dash_progress(), player.dash_charges, player.dash_max)
 	_update_boss_bar()
 	if bot:
 		_bot_step(delta)
@@ -202,6 +210,10 @@ func _update_game(delta: float) -> void:
 		player.hp = player.max_hp
 
 	_rebuild_grid()
+	if player.dash_just_ended:
+		player.dash_just_ended = false
+		if player.ability == "dash_slam":
+			_dash_slam()
 	if demo_reaction != "":
 		_demo_t -= delta
 		if _demo_t <= 0.0:
@@ -347,6 +359,21 @@ func nearest_enemies(pos: Vector2, count: int, max_dist: float) -> Array:
 	return result
 
 
+## 화면 안에서 체력이 가장 높은 적 (exclude 에 있는 적은 제외). 레일건이 엘리트와 보스를 우선 노리게 한다
+func tankiest_in_view(exclude: Array) -> Enemy:
+	var half := get_viewport_rect().size * 0.5
+	var best: Enemy = null
+	var best_hp := -1.0
+	for e in enemies:
+		if e.dead or exclude.has(e):
+			continue
+		var d := (e.position - player.position).abs()
+		if d.x < half.x and d.y < half.y and e.hp > best_hp:
+			best_hp = e.hp
+			best = e
+	return best
+
+
 ## 화면 안(mult 배)에 있는 무작위 적 하나
 func random_enemy_in_view(mult: float = 1.0) -> Enemy:
 	if enemies.is_empty():
@@ -375,12 +402,12 @@ func _spawn(delta: float) -> void:
 			made += 1
 		return
 	var wave := GameData.wave_for(time)
-	var rate := float(wave.rate) * (0.45 if final_boss_spawned else 1.0)
+	var rate := float(wave.rate) * (0.45 if final_boss_spawned else 1.0) * GameData.SPAWN_MUL * float(risk.count)
 	spawn_acc += rate * delta
 	var types: Array = wave.types
 	while spawn_acc >= 1.0:
 		spawn_acc -= 1.0
-		if enemies.size() < int(wave.max):
+		if enemies.size() < int(float(wave.max) * float(risk.count)):
 			var kind: String = types[randi() % types.size()]
 			# 마법사가 너무 많으면 화면이 탄막으로 가득 차므로 동시 마릿수를 제한
 			if kind == "turret" and _count_kind("turret") >= 3 + int(time / 120.0):
@@ -408,7 +435,12 @@ func _edge_pos() -> Vector2:
 ## opts: pos(Vector2), elite(bool), straight(Vector2)
 func spawn_enemy(kind: String, opts: Dictionary = {}) -> Enemy:
 	var e := Enemy.new()
-	e.setup(kind, 1.0 + time / 180.0, opts.get("elite", false))
+	e.setup(kind, (1.0 + time / GameData.HP_TIME_SCALE) * float(risk.hp), opts.get("elite", false))
+	e.damage *= float(risk.damage) * (1.0 + time / GameData.DAMAGE_TIME_SCALE)
+	e.speed *= float(risk.speed)
+	if e.boss != "":
+		e.max_hp *= float(risk.boss_hp)
+		e.hp = e.max_hp
 	e.position = opts.get("pos", _edge_pos())
 	if opts.has("straight"):
 		e.straight = opts.straight
@@ -488,7 +520,7 @@ func _update_enemies(delta: float) -> void:
 		var to := ppos - e.position
 		var dist := to.length()
 		var dir := to / maxf(dist, 0.001)
-		if not e.status.is_empty() or e.stun > 0.0:
+		if not e.status.is_empty() or e.stun > 0.0 or e.suction > 0.0:
 			_tick_status(e, delta)
 			if e.dead:
 				continue
@@ -558,6 +590,17 @@ func _update_enemies(delta: float) -> void:
 				e.dead = true    # 돌진 무리는 지나가면 조용히 사라짐
 			else:
 				e.position = _edge_pos()
+
+
+## 곰돌이 정비사의 능력: 대시가 끝난 자리에서 주변 적을 밀어내는 충격파
+func _dash_slam() -> void:
+	var dmg := 26.0 * float(player.stats["might"])
+	for t in _near_fresh(player.position, 85.0):
+		damage_enemy(t, dmg, null, (t.position - player.position).normalized(), 2.2, false, Color(1.0, 0.85, 0.5))
+	add_fx(Fx.ring(player.position, Color(1.0, 0.8, 0.4), 90.0, 0.3))
+	add_fx(Fx.puff(player.position + Vector2(0, 8), Color(0.9, 0.85, 0.7), 18.0))
+	shake(3.0, 0.1)
+	Sfx.play("kill", 0.05)
 
 
 ## 대시 실행: 성공하면 시작 지점에 먼지 효과와 소리
@@ -704,7 +747,7 @@ func _apply_element(e: Enemy, w: Weapon, dmg: float) -> void:
 	_add_status(e, elem, dmg, w)
 
 
-func _add_status(e: Enemy, elem: String, dmg: float, w: Weapon) -> void:
+func _add_status(e: Enemy, elem: String, dmg: float, w: Weapon, spread: bool = true) -> void:
 	if e.dead:
 		return
 	var dur: float = GameData.STATUS_TIME[elem]
@@ -715,6 +758,15 @@ func _add_status(e: Enemy, elem: String, dmg: float, w: Weapon) -> void:
 		e.burn_dps = maxf(e.burn_dps, dmg * 0.5)
 		e.burn_src = w
 	e.queue_redraw()
+	# 고양이 우주인: 젤이 붙으면 가까운 적 2마리에게도 번진다
+	if elem == "gel" and spread and player.ability == "gel_spread":
+		var n := 0
+		for t in _near_fresh(e.position, 75.0, e):
+			if n >= 2:
+				break
+			if not t.status.has("gel"):
+				_add_status(t, "gel", dmg, w, false)
+				n += 1
 
 
 func _stun(e: Enemy, dur: float) -> void:
@@ -728,6 +780,7 @@ func _stun(e: Enemy, dur: float) -> void:
 
 func _tick_status(e: Enemy, delta: float) -> void:
 	var changed := false
+	e.suction = maxf(0.0, e.suction - delta)
 	for k: String in e.status.keys():
 		e.status[k] = float(e.status[k]) - delta
 		if float(e.status[k]) <= 0.0:
@@ -774,6 +827,8 @@ func _react(key: String, e: Enemy, w: Weapon, dmg: float, mult: float, n: int) -
 	var col: Color = info.color
 	var pos := e.position
 	reaction_counts[key] = int(reaction_counts.get(key, 0)) + 1
+	if player.ability == "reaction_xp":
+		gain_xp(1.0)
 	add_fx(Fx.label(pos + Vector2(0, -e.radius - 44), "%s!" % T.t(str(info.name)), col, 21.0))
 	Sfx.play("react", 0.08)
 	match key:
@@ -884,12 +939,19 @@ func _update_projectiles(delta: float) -> void:
 			p.position += p.vel * delta
 		if p.spin != 0.0:
 			p.rotation += p.spin * delta
-		if p.kind == "zone":
+		if p.kind == "zone" or p.kind == "mine" or p.kind == "drone":
 			p.queue_redraw()
 		elif p.kind == "book":
 			p.scale = Vector2.ONE * p.fade
+		if p.kind == "mine":
+			# 설치가 끝났거나 연쇄 폭발이 정해진 지뢰만 검사한다
+			if p.age >= p.delay or p.triggered:
+				_update_mine(p)
+			continue
 		if p.age < p.delay:
 			continue
+		if p.damage <= 0.0:
+			continue    # 공격하지 않는 중인 드론
 
 		hit_props(p.position, p.radius)
 		if p.hit_ids.size() > 150:
@@ -912,6 +974,36 @@ func _update_projectiles(delta: float) -> void:
 					if p.pierce <= 0:
 						p.dead = true
 						break
+
+
+## 지뢰: 적이 가까이 오거나 이웃 지뢰가 터지면 폭발한다
+func _update_mine(p: Projectile) -> void:
+	if not p.triggered:
+		for e in query_enemies(p.position, p.radius + 30.0):
+			if e.dead:
+				continue
+			var reach := p.radius + e.radius
+			if e.position.distance_squared_to(p.position) < reach * reach:
+				p.triggered = true
+				break
+	if p.triggered:
+		_explode_mine(p)
+
+
+func _explode_mine(p: Projectile) -> void:
+	p.dead = true
+	var pos := p.position
+	for t in _near_fresh(pos, p.aoe):
+		damage_enemy(t, p.damage, p.weapon, (t.position - pos).normalized(), p.kb)
+	hit_props(pos, p.aoe * 0.6)
+	# 이웃한 지뢰도 연쇄로 터진다
+	for other in projectiles:
+		if other.kind == "mine" and not other.dead and other != p and other.position.distance_squared_to(pos) < p.aoe * p.aoe:
+			other.triggered = true
+	add_fx(Fx.ring(pos, p.color, p.aoe, 0.3))
+	add_fx(Fx.puff(pos, p.color, p.aoe * 0.35))
+	shake(2.0, 0.08)
+	Sfx.play("mine", 0.1)
 
 
 func _prune_hits(p: Projectile) -> void:
@@ -952,6 +1044,8 @@ func _update_gems(delta: float) -> void:
 				g.dead = true
 				g.visible = false
 				Sfx.play("gem", 0.1)
+				if player.ability == "gem_heal":
+					heal_player(0.3)
 				gain_xp(float(g.value))
 		else:
 			g.t += delta * 4.0
@@ -1287,8 +1381,8 @@ func _finish(won: bool) -> void:
 	state = State.WON if won else State.DEAD
 	hud.hide_levelup()
 	hud.hide_chest()
-	reward = GameData.run_reward(gold, kills, time, won)
-	new_record = SaveData.record_run(time, kills, player.level, reward, won)
+	reward = GameData.run_reward(gold, kills, time, won, risk_tier)
+	new_record = SaveData.record_run(time, kills, player.level, reward, won, risk_tier)
 	Sfx.stop_music()
 	Sfx.play("victory" if won else "death")
 	hud.show_gameover(won, _summary_text())
@@ -1314,6 +1408,8 @@ func _status_text() -> String:
 
 func _summary_text() -> String:
 	var lines: PackedStringArray = []
+	if risk_tier > 0:
+		lines.append(T.f("위험도   %d", [risk_tier]))
 	lines.append(T.f("생존 시간   %s", [Util.fmt_time(time)]))
 	lines.append(T.f("처치 수     %d", [kills]))
 	lines.append(T.f("도달 레벨   %d", [player.level]))
@@ -1359,7 +1455,7 @@ func _bot_input() -> Vector2:
 
 
 func _bot_dash(input: Vector2) -> void:
-	if player.dash_cd > 0.0:
+	if player.dash_charges <= 0:
 		return
 	var close := 0
 	for e in enemies:

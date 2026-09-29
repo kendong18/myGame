@@ -12,6 +12,10 @@ var _screens: Dictionary = {}
 var _title_info: Label
 var _select_grid: GridContainer
 var _select_gold: Label
+var _risk_prev: Button
+var _risk_next: Button
+var _risk_label: Label
+var _risk_desc: Label
 var _shop_grid: GridContainer
 var _shop_gold: Label
 var _current := "title"
@@ -119,7 +123,8 @@ func _show(screen: String) -> void:
 func _focus_first(screen: String) -> void:
 	if not _screens.has(screen):
 		return
-	var b := _find_button(_screens[screen])
+	var root: Node = _select_grid if screen == "select" else _screens[screen]
+	var b := _find_button(root)
 	if b != null:
 		b.grab_focus()
 
@@ -268,6 +273,8 @@ func _build_title() -> void:
 func _refresh_title() -> void:
 	var b: Dictionary = SaveData.best
 	var text := T.f("보유 골드  %d", [SaveData.gold])
+	if SaveData.cleared_tier >= 0:
+		text += "  ·  " + T.f("클리어한 최고 위험도  %d", [SaveData.cleared_tier])
 	if SaveData.runs > 0:
 		text += "\n" + T.f("최고 기록  %s  ·  최다 처치  %d  ·  승리 %d회", [Util.fmt_time(float(b.time)), int(b.kills), SaveData.wins])
 	_title_info.text = text
@@ -285,6 +292,24 @@ func _build_select() -> void:
 	_select_gold = UiTheme.label("", 18, Color(1, 0.9, 0.35), 3)
 	_select_gold.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_select_gold)
+	# 위험도 선택: 마왕을 쓰러뜨릴 때마다 한 단계씩 열린다
+	var risk_row := HBoxContainer.new()
+	risk_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	risk_row.add_theme_constant_override("separation", 12)
+	_risk_prev = _button("◀", func() -> void: _change_risk(-1), false, 56.0)
+	_risk_prev.custom_minimum_size = Vector2(56, 40)
+	_risk_label = UiTheme.label("", 22, Color(1.0, 0.7, 0.55), 3)
+	_risk_label.custom_minimum_size = Vector2(150, 0)
+	_risk_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_risk_next = _button("▶", func() -> void: _change_risk(1), false, 56.0)
+	_risk_next.custom_minimum_size = Vector2(56, 40)
+	risk_row.add_child(_risk_prev)
+	risk_row.add_child(_risk_label)
+	risk_row.add_child(_risk_next)
+	v.add_child(risk_row)
+	_risk_desc = UiTheme.label("", 14, Color(0.85, 0.8, 0.95), 2)
+	_risk_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_risk_desc)
 	_select_grid = GridContainer.new()
 	_select_grid.columns = 3
 	_select_grid.add_theme_constant_override("h_separation", 12)
@@ -296,8 +321,36 @@ func _build_select() -> void:
 	v.add_child(wrap)
 
 
+func _change_risk(step: int) -> void:
+	SaveData.risk_tier = clampi(SaveData.risk_tier + step, 0, SaveData.max_tier())
+	SaveData.save()
+	Sfx.play("click")
+	_refresh_risk()
+	# 화살표가 비활성화되면 포커스가 사라지므로 반대쪽이나 캐릭터로 옮긴다
+	if get_viewport().gui_get_focus_owner() == null:
+		_focus_first("select")
+
+
+func _refresh_risk() -> void:
+	SaveData.risk_tier = clampi(SaveData.risk_tier, 0, SaveData.max_tier())
+	var tier := SaveData.risk_tier
+	_risk_label.text = T.f("위험도 %d", [tier])
+	var r := GameData.risk(tier)
+	var text := T.t("기본 난이도")
+	if tier > 0:
+		text = T.f("적 체력 +%d%% · 등장 수 +%d%% · 피해 +%d%% · 보상 +%d%%", [
+			roundi((float(r.hp) - 1.0) * 100.0), roundi((float(r.count) - 1.0) * 100.0),
+			roundi((float(r.damage) - 1.0) * 100.0), roundi((float(r.gold) - 1.0) * 100.0)])
+	if tier >= SaveData.max_tier() and tier < GameData.RISK_TIERS.size() - 1:
+		text += "\n" + T.t("마왕을 쓰러뜨리면 다음 위험도가 열립니다.")
+	_risk_desc.text = text
+	_risk_prev.disabled = tier <= 0
+	_risk_next.disabled = tier >= SaveData.max_tier()
+
+
 func _rebuild_select(focus_id: String = "") -> void:
 	_select_gold.text = T.f("보유 골드  %d", [SaveData.gold])
+	_refresh_risk()
 	_clear_children(_select_grid)
 	for ch: Dictionary in GameData.CHARACTERS:
 		_select_grid.add_child(_make_char_card(ch))
@@ -335,6 +388,11 @@ func _make_char_card(ch: Dictionary) -> Control:
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.custom_minimum_size = Vector2(240, 40)
 	v.add_child(desc)
+	var ability := UiTheme.label(T.t(str(ch.ability_desc)), 13, Color(0.6, 0.95, 0.8), 2)
+	ability.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ability.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ability.custom_minimum_size = Vector2(240, 36)
+	v.add_child(ability)
 
 	var b: Button
 	if unlocked:
@@ -460,6 +518,7 @@ func _build_howto() -> void:
 		["보급 상자", "금빛 테두리의 엘리트 적과 보스가 떨어뜨립니다."],
 		["보급 캡슐", "부수면 배터리, 자석, 펄스탄, 동전이 나옵니다."],
 		["목표", "10분에 나타나는 폭주 메인 컴퓨터를 쓰러뜨리면 승리합니다."],
+		["위험도", "마왕을 처음 쓰러뜨리면 다음 위험도가 열립니다. 높을수록 적이 강해지고 보상이 늘어납니다."],
 		["기타", "ESC 또는 P: 일시정지 / F11: 전체 화면"],
 	])
 	var list := VBoxContainer.new()

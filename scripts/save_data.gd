@@ -10,6 +10,8 @@ var best := {"time": 0.0, "kills": 0, "level": 0}
 var wins := 0
 var runs := 0
 var selected_char := "coco"
+var cleared_tier := -1          # 마왕을 쓰러뜨린 가장 높은 위험도 (-1 이면 아직 없음)
+var risk_tier := 0              # 다음 판에 도전할 위험도
 var settings := {
 	"sfx": 0.8, "music": 0.5,
 	"damage_numbers": true, "screen_shake": true, "fullscreen": false,
@@ -57,6 +59,11 @@ func load_data() -> void:
 	wins = int(d.get("wins", 0))
 	runs = int(d.get("runs", 0))
 	selected_char = str(d.get("selected_char", "coco"))
+	cleared_tier = int(d.get("cleared_tier", -1))
+	# 위험도 기능이 생기기 전에 이미 승리한 기록이 있으면 기본 난이도를 클리어한 것으로 본다
+	if not d.has("cleared_tier") and wins > 0:
+		cleared_tier = 0
+	risk_tier = clampi(int(d.get("risk_tier", 0)), 0, max_tier())
 	# 예전 버전의 캐릭터 아이디가 남아 있으면 정리
 	unlocked = unlocked.filter(func(id: Variant) -> bool: return GameData.is_valid_character(str(id)))
 	for base_id in ["coco", "miyu"]:
@@ -81,6 +88,7 @@ func save() -> void:
 	f.store_string(JSON.stringify({
 		"gold": gold, "upgrades": upgrades, "unlocked": unlocked, "best": best,
 		"wins": wins, "runs": runs, "selected_char": selected_char, "settings": settings,
+		"cleared_tier": cleared_tier, "risk_tier": risk_tier,
 	}, "\t"))
 
 
@@ -132,6 +140,11 @@ func refund_all() -> int:
 	return total
 
 
+## 지금 고를 수 있는 가장 높은 위험도 (한 단계 위까지 열려 있다)
+func max_tier() -> int:
+	return mini(GameData.RISK_TIERS.size() - 1, cleared_tier + 1)
+
+
 func is_unlocked(id: String) -> bool:
 	return id in unlocked
 
@@ -149,10 +162,11 @@ func unlock_char(ch: Dictionary) -> bool:
 
 
 ## 한 판 결과 기록. 새 기록이면 true 반환
-func record_run(time: float, kills: int, level: int, reward: int, won: bool) -> bool:
+func record_run(time: float, kills: int, level: int, reward: int, won: bool, tier: int = 0) -> bool:
 	runs += 1
 	if won:
 		wins += 1
+		cleared_tier = maxi(cleared_tier, tier)
 	gold += reward
 	var record := time > float(best.time)
 	if record:

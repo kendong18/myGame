@@ -20,6 +20,7 @@ var _banner: Label
 var _banner_t := 0.0
 var _dash_bar: ProgressBar
 var _dash_label: Label
+var _risk_label: Label
 var _vignette: TextureRect
 var _vignette_a := 0.0
 
@@ -145,6 +146,16 @@ func _build_top_bar() -> void:
 	_gold_label.offset_top = 52
 	_gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_root.add_child(_gold_label)
+
+	_risk_label = _label("", 15, Color(1.0, 0.6, 0.5))
+	_risk_label.anchor_left = 0.5
+	_risk_label.anchor_right = 0.5
+	_risk_label.offset_left = -80
+	_risk_label.offset_right = 80
+	_risk_label.offset_top = 60
+	_risk_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_risk_label.visible = false
+	_root.add_child(_risk_label)
 
 	_hp_label = _label("HP 100 / 100", 18, Color(1, 0.55, 0.6))
 	_hp_label.offset_left = 14
@@ -349,12 +360,20 @@ func update_info(player: Player, time: float, kills: int, gold: int) -> void:
 	_hp_label.text = "HP %d / %d" % [ceili(maxf(player.hp, 0.0)), int(player.max_hp)]
 
 
-## 대시 재충전 표시. 1 이면 사용 가능
-func set_dash(ratio: float) -> void:
-	_dash_bar.value = ratio
-	var ready := ratio >= 1.0
-	_dash_label.text = T.t("대시 [Space]  준비됨") if ready else T.t("대시 [Space]")
+## 대시 재충전 표시. progress 는 다음 충전 진행도, charges 는 모아 둔 횟수
+func set_dash(progress: float, charges: int, max_charges: int) -> void:
+	_dash_bar.value = progress
+	var ready := charges >= 1
+	if max_charges > 1:
+		_dash_label.text = T.f("대시 [Space]  ×%d", [charges])
+	else:
+		_dash_label.text = T.t("대시 [Space]  준비됨") if ready else T.t("대시 [Space]")
 	_dash_label.modulate = Color(1, 1, 1, 1.0) if ready else Color(1, 1, 1, 0.6)
+
+
+func set_risk(tier: int) -> void:
+	_risk_label.visible = tier > 0
+	_risk_label.text = T.f("위험도 %d", [tier])
 
 
 func flash_damage(strength: float = 1.0) -> void:
