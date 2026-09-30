@@ -290,7 +290,7 @@ func _refresh_title() -> void:
 # ─────────────────────────────────────────────
 func _build_stage() -> void:
 	var s := _new_screen("stage", 0.8)
-	var v := UiTheme.centered_panel(s, 940.0)
+	var v := UiTheme.centered_panel(s, 1180.0)
 	var title := UiTheme.label("스테이지 선택", 34, Color(1, 0.88, 0.5))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
@@ -298,7 +298,7 @@ func _build_stage() -> void:
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(hint)
 	_stage_grid = GridContainer.new()
-	_stage_grid.columns = 2
+	_stage_grid.columns = 3
 	_stage_grid.add_theme_constant_override("h_separation", 14)
 	_stage_grid.add_theme_constant_override("v_separation", 14)
 	v.add_child(_scroll_area(_stage_grid, 250.0))
@@ -319,7 +319,7 @@ func _make_stage_card(st: Dictionary) -> Control:
 	var unlocked := SaveData.is_stage_unlocked(id)
 	var selected := SaveData.selected_stage == id
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(430, 0)
+	card.custom_minimum_size = Vector2(360, 0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var border := Color(1.0, 0.8, 0.3) if selected else Color(0.3, 0.24, 0.46)
 	card.add_theme_stylebox_override("panel", UiTheme.box(Color(0.12, 0.09, 0.22), border, 10, 3 if selected else 2))
@@ -340,7 +340,7 @@ func _make_stage_card(st: Dictionary) -> Control:
 	var desc := UiTheme.label(T.t(str(st.desc)), 14, Color(0.78, 0.75, 0.92), 2)
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.custom_minimum_size = Vector2(380, 40)
+	desc.custom_minimum_size = Vector2(330, 56)
 	v.add_child(desc)
 	if unlocked:
 		var names: PackedStringArray = []
@@ -349,12 +349,12 @@ func _make_stage_card(st: Dictionary) -> Control:
 		var foes := UiTheme.label(T.f("등장하는 적  %s", [" · ".join(names)]), 13, Color(1, 0.85, 0.5), 2)
 		foes.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		foes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		foes.custom_minimum_size = Vector2(380, 40)
+		foes.custom_minimum_size = Vector2(330, 56)
 		v.add_child(foes)
 		var tip := UiTheme.label(T.t(str(st.tip)), 13, Color(0.6, 0.95, 0.8), 2)
 		tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		tip.custom_minimum_size = Vector2(380, 60)
+		tip.custom_minimum_size = Vector2(330, 72)
 		v.add_child(tip)
 	var status_text := T.t("앞 스테이지를 클리어하면 열립니다.")
 	if unlocked:

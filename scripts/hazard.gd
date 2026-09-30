@@ -2,6 +2,7 @@ class_name Hazard
 extends Node2D
 ## 바닥에 생기는 위험 지대와 지형.
 ## thorns: 잠시 예고한 뒤 가시가 솟는다 / spore: 한동안 머무는 포자 구름 / puddle: 물웅덩이 (안의 적은 전기에 약하다)
+## frost: 예고한 뒤 냉기가 터진다 (피해와 느려짐) / ice: 미끄러운 얼음 바닥 / sweep: 예고한 뒤 빙글 도는 냉기 빔
 
 const THORN_STAY := 0.45      # 가시가 솟은 뒤 남아 있는 시간
 const PUDDLE_SQUASH := 0.75   # 물웅덩이는 세로로 납작한 타원
@@ -15,8 +16,15 @@ var source := ""
 var age := 0.0
 var dead := false
 var just_fired := false       # thorns: 이번 프레임에 솟았다 (Main 이 피해를 판정하고 되돌린다)
-var tick := 0.0               # spore: 다음 피해까지 남은 시간
+var tick := 0.0               # spore, sweep: 다음 피해까지 남은 시간
 var seed_v := 0.0
+
+# sweep 전용: 시작 위치에서 beam_count 갈래의 빔이 spin(초당 라디안)으로 돈다
+var angle := 0.0
+var spin := 0.0
+var beam_count := 2
+var beam_length := 720.0
+var beam_width := 30.0
 
 
 static func thorns(pos: Vector2, r: float, wait: float, dmg: float, src: String) -> Hazard:
@@ -25,6 +33,33 @@ static func thorns(pos: Vector2, r: float, wait: float, dmg: float, src: String)
 	h.position = pos
 	h.radius = r
 	h.delay = wait
+	h.damage = dmg
+	h.source = src
+	return h
+
+
+static func frost(pos: Vector2, r: float, wait: float, dmg: float, src: String) -> Hazard:
+	var h := Hazard.thorns(pos, r, wait, dmg, src)
+	h.kind = "frost"
+	return h
+
+
+static func ice(pos: Vector2, r: float, dur: float) -> Hazard:
+	var h := Hazard.puddle(pos, r, dur)
+	h.kind = "ice"
+	return h
+
+
+## 예고(wait초) 뒤 active초 동안 도는 냉기 빔
+static func sweep(pos: Vector2, count: int, start_angle: float, spin_speed: float, wait: float, active: float, dmg: float, src: String) -> Hazard:
+	var h := Hazard.new()
+	h.kind = "sweep"
+	h.position = pos
+	h.beam_count = count
+	h.angle = start_angle
+	h.spin = spin_speed
+	h.delay = wait
+	h.duration = wait + active
 	h.damage = dmg
 	h.source = src
 	return h
@@ -52,14 +87,14 @@ static func puddle(pos: Vector2, r: float, dur: float) -> Hazard:
 
 func _ready() -> void:
 	seed_v = randf() * TAU
-	z_index = -5 if kind != "thorns" else 1
+	z_index = 1 if kind in ["thorns", "frost", "sweep"] else -5
 
 
 ## 시간을 진행시킨다. 사라져야 하면 dead 가 true 가 된다.
 func step(delta: float) -> void:
 	age += delta
 	match kind:
-		"thorns":
+		"thorns", "frost":
 			if not just_fired and age >= delay and age - delta < delay:
 				just_fired = true
 			if age >= delay + THORN_STAY:
@@ -68,15 +103,38 @@ func step(delta: float) -> void:
 			tick -= delta
 			if age >= duration:
 				dead = true
-		"puddle":
+		"puddle", "ice":
+			if age >= duration:
+				dead = true
+		"sweep":
+			tick -= delta
+			if age >= delay:
+				angle += spin * delta
 			if age >= duration:
 				dead = true
 	queue_redraw()
 
 
+## sweep 이 지금 피해를 주는 중인가 (예고 시간이 끝난 뒤)
+func sweep_active() -> bool:
+	return kind == "sweep" and age >= delay and not dead
+
+
+## sweep 의 어느 빔이든 p 를 지나가는가
+func sweep_hits(p: Vector2, extra: float = 0.0) -> bool:
+	if not sweep_active():
+		return false
+	for i in beam_count:
+		var dir := Vector2.from_angle(angle + TAU * float(i) / float(beam_count))
+		var t := clampf((p - position).dot(dir), 0.0, beam_length)
+		if p.distance_to(position + dir * t) < beam_width * 0.5 + extra:
+			return true
+	return false
+
+
 func contains(p: Vector2, extra: float = 0.0) -> bool:
 	var d := p - position
-	if kind == "puddle":
+	if kind == "puddle" or kind == "ice":
 		var rx := radius + extra
 		var ry := radius * PUDDLE_SQUASH + extra
 		return (d.x * d.x) / (rx * rx) + (d.y * d.y) / (ry * ry) < 1.0
@@ -91,6 +149,12 @@ func _draw() -> void:
 			_draw_spore()
 		"puddle":
 			_draw_puddle()
+		"frost":
+			_draw_frost()
+		"ice":
+			_draw_ice()
+		"sweep":
+			_draw_sweep()
 
 
 func _draw_thorns() -> void:
@@ -166,3 +230,73 @@ func _draw_puddle() -> void:
 	# 전기 표시: 깜빡이는 작은 번개 무늬
 	var zap := Color(1.0, 0.95, 0.4, (0.5 + 0.3 * sin(age * 5.0)) * fade)
 	draw_polyline(PackedVector2Array([Vector2(-4, -9), Vector2(2, -2), Vector2(-2, -1), Vector2(4, 8)]), zap, 2.0)
+
+
+func _draw_frost() -> void:
+	if age < delay:
+		var t := clampf(age / delay, 0.0, 1.0)
+		var blink := 0.75 + 0.25 * sin(age * 18.0)
+		draw_circle(Vector2.ZERO, radius, Color(0.55, 0.85, 1.0, (0.12 + 0.22 * t) * blink))
+		draw_arc(Vector2.ZERO, radius, 0.0, TAU, 40, Color(0.75, 0.95, 1.0, 0.6 + 0.4 * t), 3.0)
+		draw_arc(Vector2.ZERO, radius * t, 0.0, TAU, 32, Color(1.0, 1.0, 1.0, 0.75), 2.0)
+		for i in 6:
+			var a := TAU * float(i) / 6.0 + seed_v
+			draw_line(Vector2.ZERO, Vector2.from_angle(a) * radius * 0.5 * t, Color(0.85, 0.97, 1.0, 0.6), 2.0)
+	else:
+		var t := clampf((age - delay) / THORN_STAY, 0.0, 1.0)
+		var a := 1.0 - t * t
+		var rise := minf(1.0, (age - delay) / 0.08)
+		draw_circle(Vector2.ZERO, radius, Color(0.7, 0.92, 1.0, 0.35 * a))
+		for ring in 2:
+			var n := 8 if ring == 0 else 5
+			var rr := radius * (0.7 if ring == 0 else 0.32)
+			for i in n:
+				var ang := TAU * float(i) / float(n) + seed_v + float(ring) * 0.5
+				_crystal(Vector2.from_angle(ang) * rr, radius * 0.4 * rise, Color(0.75, 0.94, 1.0, a))
+		_crystal(Vector2.ZERO, radius * 0.5 * rise, Color(0.9, 0.98, 1.0, a))
+
+
+## 솟아오른 얼음 결정 하나
+func _crystal(base: Vector2, h: float, col: Color) -> void:
+	var w := maxf(2.0, h * 0.3)
+	var tip := base + Vector2(0, -h)
+	draw_colored_polygon(PackedVector2Array([base + Vector2(-w, 0), base + Vector2(0, -h * 0.25), tip, base + Vector2(w, 0)]), col)
+	draw_line(base + Vector2(0, -h * 0.2), tip, Color(1, 1, 1, col.a), 1.2)
+
+
+func _draw_ice() -> void:
+	var left := duration - age
+	var fade := clampf(left / 1.2, 0.0, 1.0) * clampf(age / 0.4, 0.0, 1.0)
+	var rx := radius
+	var ry := radius * PUDDLE_SQUASH
+	draw_colored_polygon(Util.ellipse(Vector2.ZERO, rx, ry, 28), Color(0.7, 0.92, 1.0, 0.42 * fade))
+	draw_colored_polygon(Util.ellipse(Vector2(-rx * 0.1, -ry * 0.1), rx * 0.75, ry * 0.7, 24), Color(0.9, 0.98, 1.0, 0.3 * fade))
+	# 금과 반짝임
+	for i in 4:
+		var a := seed_v + TAU * float(i) / 4.0
+		var p0 := Vector2(cos(a) * rx * 0.15, sin(a) * ry * 0.15)
+		var p1 := Vector2(cos(a + 0.3) * rx * 0.8, sin(a + 0.3) * ry * 0.8)
+		draw_line(p0, p1, Color(1, 1, 1, 0.55 * fade), 1.4)
+	var edge := Util.ellipse(Vector2.ZERO, rx, ry, 28)
+	edge.append(edge[0])
+	draw_polyline(edge, Color(0.85, 0.97, 1.0, 0.85 * fade), 2.0)
+	var tw := 0.5 + 0.5 * sin(age * 3.0 + seed_v)
+	draw_circle(Vector2(rx * 0.3, -ry * 0.25), 2.5, Color(1, 1, 1, 0.8 * tw * fade))
+	draw_circle(Vector2(-rx * 0.4, ry * 0.2), 2.0, Color(1, 1, 1, 0.7 * (1.0 - tw) * fade))
+
+
+func _draw_sweep() -> void:
+	for i in beam_count:
+		var dir := Vector2.from_angle(angle + TAU * float(i) / float(beam_count))
+		if age < delay:
+			var t := clampf(age / delay, 0.0, 1.0)
+			var pulse := 0.4 + 0.6 * t
+			draw_line(Vector2.ZERO, dir * beam_length, Color(0.6, 0.9, 1.0, 0.45 * pulse), beam_width * 0.5)
+			draw_line(Vector2.ZERO, dir * beam_length, Color(1, 1, 1, 0.5 * pulse), 1.5)
+		else:
+			var left := duration - age
+			var fade := clampf(left / 0.4, 0.0, 1.0)
+			draw_line(Vector2.ZERO, dir * beam_length, Color(0.5, 0.85, 1.0, 0.3 * fade), beam_width * 1.5)
+			draw_line(Vector2.ZERO, dir * beam_length, Color(0.7, 0.93, 1.0, 0.85 * fade), beam_width)
+			draw_line(Vector2.ZERO, dir * beam_length, Color(1, 1, 1, fade), beam_width * 0.35)
+	draw_circle(Vector2.ZERO, beam_width * 0.7, Color(0.8, 0.95, 1.0, 0.8))

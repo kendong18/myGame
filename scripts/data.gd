@@ -384,6 +384,16 @@ const ENEMIES := {
 	"pumpkin": {"name": "돌진 호박", "hp": 150.0, "speed": 38.0, "damage": 15.0, "radius": 17.0, "xp": 10, "kb_resist": 0.8, "color": Color(1.0, 0.6, 0.2), "move": "charger"},
 	"queenbee": {"name": "여왕벌", "hp": 7500.0, "speed": 78.0, "damage": 22.0, "radius": 26.0, "xp": 250, "kb_resist": 0.97, "color": Color(1.0, 0.82, 0.25), "boss": "queenbee"},
 	"greentree": {"name": "폭주 온실 나무", "hp": 42000.0, "speed": 40.0, "damage": 30.0, "radius": 40.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.35, 0.7, 0.4), "boss": "greentree", "final": true},
+
+	# ── 냉동 창고 ── (얼음 적은 냉각 무기에 강하고 열에 약하다)
+	"snowball": {"name": "눈덩이", "hp": 6.0, "speed": 84.0, "damage": 4.0, "radius": 10.0, "xp": 1, "kb_resist": 0.0, "color": Color(0.85, 0.93, 1.0), "weak": ["heat"], "resist": ["cold"]},
+	"penguin": {"name": "펭귄 로봇", "hp": 22.0, "speed": 62.0, "damage": 7.0, "radius": 11.0, "xp": 2, "kb_resist": 0.2, "color": Color(0.25, 0.32, 0.5), "weak": ["shock"], "resist": ["cold"], "move": "slider"},
+	"snowflake": {"name": "눈송이 요정", "hp": 32.0, "speed": 50.0, "damage": 6.0, "radius": 11.0, "xp": 5, "kb_resist": 0.2, "color": Color(0.7, 0.92, 1.0), "weak": ["shock"], "resist": ["cold"], "ranged": true, "pattern": "frost", "swap": "snowball"},
+	"iceblock": {"name": "얼음 블록", "hp": 120.0, "speed": 34.0, "damage": 12.0, "radius": 17.0, "xp": 8, "kb_resist": 0.7, "color": Color(0.6, 0.85, 1.0), "weak": ["heat"], "resist": ["cold"], "on_death": "split"},
+	"frostbomb": {"name": "얼음 폭탄", "hp": 16.0, "speed": 100.0, "damage": 16.0, "radius": 10.0, "xp": 3, "kb_resist": 0.0, "color": Color(0.55, 0.85, 1.0), "weak": ["heat"], "resist": ["cold"], "move": "bomber", "explode": "frost"},
+	"yeti": {"name": "예티", "hp": 170.0, "speed": 44.0, "damage": 16.0, "radius": 19.0, "xp": 12, "kb_resist": 0.85, "color": Color(0.93, 0.96, 1.0), "weak": ["plasma"], "resist": ["cold"], "move": "slammer"},
+	"snowcaptain": {"name": "눈사람 대장", "hp": 9000.0, "speed": 56.0, "damage": 24.0, "radius": 28.0, "xp": 300, "kb_resist": 0.97, "color": Color(0.92, 0.96, 1.0), "boss": "snowcaptain"},
+	"freezecore": {"name": "폭주 대형 냉동고", "hp": 50000.0, "speed": 34.0, "damage": 32.0, "radius": 42.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.7, 0.88, 1.0), "boss": "freezecore", "final": true},
 }
 
 # 약점 속성은 피해가 늘고, 저항 속성은 줄어든다
@@ -465,6 +475,42 @@ const EVENTS_GREENHOUSE := [
 	{"time": 600.0, "type": "boss", "enemy": "greentree"},
 ]
 
+# ── 냉동 창고 웨이브와 이벤트 ──
+const WAVES_FREEZER := [
+	{"types": ["snowball", "snowball", "penguin"], "rate": 1.7, "max": 75},
+	{"types": ["snowball", "penguin", "snowflake", "snowball"], "rate": 2.8, "max": 105},
+	{"types": ["penguin", "snowflake", "iceblock", "snowball"], "rate": 3.6, "max": 135},
+	{"types": ["penguin", "iceblock", "frostbomb", "snowflake", "snowball"], "rate": 4.4, "max": 165},
+	{"types": ["frostbomb", "iceblock", "yeti", "penguin", "snowflake"], "rate": 5.2, "max": 195},
+	{"types": ["yeti", "frostbomb", "snowflake", "penguin", "iceblock"], "rate": 6.0, "max": 235},
+	{"types": ["yeti", "frostbomb", "snowflake", "iceblock", "penguin"], "rate": 7.0, "max": 275},
+	{"types": ["yeti", "penguin", "frostbomb", "snowflake", "iceblock"], "rate": 8.2, "max": 315},
+	{"types": ["yeti", "frostbomb", "penguin", "snowflake", "iceblock"], "rate": 9.4, "max": 355},
+	{"types": ["yeti", "frostbomb", "penguin", "snowflake", "snowball"], "rate": 11.0, "max": 395},
+]
+
+const EVENTS_FREEZER := [
+	{"time": 50.0, "type": "elite", "count": 1},
+	{"time": 80.0, "type": "elite", "count": 1},
+	{"time": 95.0, "type": "ring", "enemy": "penguin", "count": 30, "text": "펭귄 로봇이 미끄러져 온다!"},
+	{"time": 120.0, "type": "elite", "count": 1},
+	{"time": 150.0, "type": "elite", "count": 2},
+	{"time": 165.0, "type": "stream", "enemy": "snowball", "count": 50},
+	{"time": 195.0, "type": "elite", "count": 2},
+	{"time": 230.0, "type": "ring", "enemy": "frostbomb", "count": 24, "text": "얼음 폭탄이 굴러온다!"},
+	{"time": 255.0, "type": "elite", "count": 2},
+	{"time": 300.0, "type": "boss", "enemy": "snowcaptain"},
+	{"time": 350.0, "type": "ring", "enemy": "iceblock", "count": 20, "text": "얼음 블록이 밀려온다!"},
+	{"time": 385.0, "type": "elite", "count": 2},
+	{"time": 410.0, "type": "stream", "enemy": "penguin", "count": 36},
+	{"time": 450.0, "type": "elite", "count": 3},
+	{"time": 470.0, "type": "ring", "enemy": "snowflake", "count": 28, "text": "눈송이 요정이 몰려온다!"},
+	{"time": 520.0, "type": "stream", "enemy": "frostbomb", "count": 30},
+	{"time": 545.0, "type": "elite", "count": 3},
+	{"time": 565.0, "type": "ring", "enemy": "yeti", "count": 14, "text": "예티 무리가 나타났다!"},
+	{"time": 600.0, "type": "boss", "enemy": "freezecore"},
+]
+
 # ── 스테이지 ────────────────────────────────
 # bg: 배경 종류 / mul: 이 스테이지 적의 추가 배율 / gold: 보상 배율 / env: 스테이지 고유 위험(가시 덩굴)과 지형(물웅덩이)
 # 앞 스테이지를 한 번이라도 클리어해야 다음 스테이지가 열린다
@@ -492,6 +538,20 @@ const STAGES := [
 			{"type": "puddle", "first": 22.0, "every": 34.0, "count": 3},
 		],
 		"mid_boss": "queenbee", "final": "greentree",
+	},
+	{
+		"id": "freezer", "name": "냉동 창고", "bg": "freezer",
+		"desc": "정거장 가장 깊은 곳의 냉동 창고. 꽁꽁 언 채로 폭주한 얼음 친구들이 미끄러져 옵니다.",
+		"goal": "10분에 나타나는 폭주 대형 냉동고를 쓰러뜨리세요.",
+		"tip": "얼음 적은 냉각 무기에 강하고 열과 전기에 약합니다. 얼음 바닥은 미끄럽고, 냉기에 맞으면 느려집니다.",
+		"enemies": ["snowball", "penguin", "snowflake", "iceblock", "frostbomb", "yeti"],
+		"mul": {"hp": 1.9, "count": 1.25, "damage": 1.4}, "gold": 2.0,
+		"waves": WAVES_FREEZER, "events": EVENTS_FREEZER,
+		"env": [
+			{"type": "ice", "first": 15.0, "every": 30.0, "count": 3},
+			{"type": "frost", "first": 45.0, "every": 22.0, "count": 3},
+		],
+		"mid_boss": "snowcaptain", "final": "freezecore",
 	},
 ]
 

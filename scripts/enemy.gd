@@ -32,7 +32,7 @@ var skill3_t := 0.0
 var rage := false              # 보스가 화가 난 상태 (그림이 바뀐다)
 
 # 스테이지 적의 특성 (data.gd 의 ENEMIES 에서 읽는다)
-var move := ""                 # zigzag / bomber / charger
+var move := ""                 # zigzag / bomber / charger / slider / slammer
 var pattern := ""              # 원거리 탄 모양 (fan)
 var weak: Array = []
 var resist: Array = []
@@ -321,6 +321,197 @@ func _draw() -> void:
 				draw_arc(Vector2(0, r * 0.3), r * 0.25, 0.25, PI - 0.25, 8, dark, 1.6)
 			Util.cheek(self, Vector2(-r * 0.78, r * 0.3), r * 0.17)
 			Util.cheek(self, Vector2(r * 0.78, r * 0.3), r * 0.17)
+		"snowball":
+			# 눈덩이: 동글동글 눈뭉치에 당근 코
+			draw_line(Vector2(-r * 0.85, r * 0.1), Vector2(-r * 1.4, -r * 0.35), Color.WHITE if white else Color(0.45, 0.32, 0.22), 1.8)
+			draw_line(Vector2(r * 0.85, r * 0.1), Vector2(r * 1.4, -r * 0.35), Color.WHITE if white else Color(0.45, 0.32, 0.22), 1.8)
+			draw_circle(Vector2(0, r * 0.1), r, c)
+			draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.62), r * 0.75, r * 0.3, 14), Color(0.65, 0.78, 0.95, 0.5))
+			draw_arc(Vector2(0, r * 0.1), r, 0.0, TAU, 22, Color(0.6, 0.75, 0.95), 1.5)
+			draw_line(Vector2(-r * 0.6, -r * 0.6), Vector2(-r * 0.35, -r * 0.75), Color(0.7, 0.85, 1.0), 1.4)
+			draw_line(Vector2(-r * 0.6, -r * 0.75), Vector2(-r * 0.35, -r * 0.6), Color(0.7, 0.85, 1.0), 1.4)
+			Util.eye(self, Vector2(-r * 0.34, -r * 0.1), r * 0.27)
+			Util.eye(self, Vector2(r * 0.34, -r * 0.1), r * 0.27)
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.1, r * 0.12), Vector2(r * 0.1, r * 0.12), Vector2(r * 0.02, r * 0.4)]), Color.WHITE if white else Color(1.0, 0.6, 0.25))
+			Util.cheek(self, Vector2(-r * 0.62, r * 0.25), r * 0.14)
+			Util.cheek(self, Vector2(r * 0.62, r * 0.25), r * 0.14)
+		"penguin":
+			# 펭귄 로봇: 안테나가 달린 펭귄. 배로 미끄러질 때는 납작해진다
+			var sliding := charge_state >= 1
+			if sliding:
+				draw_set_transform(Vector2(0, r * 0.4), 0.0, Vector2(1.25, 0.7))
+			var beak_c := Color.WHITE if white else Color(1.0, 0.68, 0.25)
+			draw_colored_polygon(Util.ellipse(Vector2(-r * 0.4, r * 0.98), r * 0.32, r * 0.13, 10), beak_c)
+			draw_colored_polygon(Util.ellipse(Vector2(r * 0.4, r * 0.98), r * 0.32, r * 0.13, 10), beak_c)
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.85, -r * 0.2), Vector2(-r * 1.3, r * 0.45), Vector2(-r * 0.8, r * 0.4)]), dark)
+			draw_colored_polygon(PackedVector2Array([Vector2(r * 0.85, -r * 0.2), Vector2(r * 1.3, r * 0.45), Vector2(r * 0.8, r * 0.4)]), dark)
+			draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.05), r * 0.95, r * 1.05, 18), c)
+			draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.28), r * 0.6, r * 0.72, 16), Color.WHITE if white else Color(0.95, 0.97, 1.0))
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.2, r * 0.02), Vector2(r * 0.2, r * 0.02), Vector2(0, r * 0.3)]), beak_c)
+			Util.eye(self, Vector2(-r * 0.32, -r * 0.4), r * 0.26)
+			Util.eye(self, Vector2(r * 0.32, -r * 0.4), r * 0.26)
+			Util.cheek(self, Vector2(-r * 0.6, -r * 0.1), r * 0.12)
+			Util.cheek(self, Vector2(r * 0.6, -r * 0.1), r * 0.12)
+			draw_line(Vector2(0, -r * 0.95), Vector2(0, -r * 1.4), dark, 1.8)
+			draw_circle(Vector2(0, -r * 1.45), r * 0.15, Color(1.0, 0.85, 0.3) if not sliding else Color(1.0, 0.4, 0.4))
+			if sliding:
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		"snowflake":
+			# 눈송이 요정: 여섯 갈래 결정 가운데 얼굴
+			for i in 6:
+				var a := TAU * float(i) / 6.0 + PI / 6.0
+				var dirv := Vector2.from_angle(a)
+				var tip := dirv * r * 1.3
+				draw_line(Vector2.ZERO, tip, c, 3.0)
+				var mid := dirv * r * 0.85
+				draw_line(mid, mid + Vector2.from_angle(a + 0.7) * r * 0.42, light, 2.0)
+				draw_line(mid, mid + Vector2.from_angle(a - 0.7) * r * 0.42, light, 2.0)
+				draw_circle(tip, r * 0.13, Color.WHITE)
+			draw_circle(Vector2.ZERO, r * 0.72, c)
+			draw_arc(Vector2.ZERO, r * 0.72, 0.0, TAU, 20, dark, 1.5)
+			Util.eye(self, Vector2(-r * 0.26, -r * 0.08), r * 0.24)
+			Util.eye(self, Vector2(r * 0.26, -r * 0.08), r * 0.24)
+			draw_arc(Vector2(0, r * 0.15), r * 0.16, 0.25, PI - 0.25, 6, dark, 1.4)
+			Util.cheek(self, Vector2(-r * 0.48, r * 0.15), r * 0.11)
+			Util.cheek(self, Vector2(r * 0.48, r * 0.15), r * 0.11)
+		"iceblock":
+			# 얼음 블록: 졸린 얼굴의 얼음 조각. 깨지면 눈덩이가 튀어나온다
+			var ice := Color.WHITE if white else Color(c.r, c.g, c.b, 0.9)
+			draw_rect(Rect2(-r * 0.85, -r * 0.8, r * 1.7, r * 1.6), ice)
+			draw_rect(Rect2(-r * 0.65, -r * 0.6, r * 0.55, r * 0.3), Color(1, 1, 1, 0.4))
+			draw_rect(Rect2(-r * 0.85, -r * 0.8, r * 1.7, r * 1.6), dark, false, 2.0)
+			draw_polyline(PackedVector2Array([Vector2(r * 0.3, -r * 0.8), Vector2(r * 0.15, -r * 0.4), Vector2(r * 0.45, -r * 0.2), Vector2(r * 0.3, r * 0.1)]), Color(1, 1, 1, 0.7), 1.5)
+			for tx in [-0.5, 0.0, 0.5]:
+				draw_colored_polygon(PackedVector2Array([Vector2(r * (tx - 0.14), -r * 0.8), Vector2(r * (tx + 0.14), -r * 0.8), Vector2(r * tx, -r * 1.05)]), Color(0.9, 0.97, 1.0))
+			draw_arc(Vector2(-r * 0.34, -r * 0.05), r * 0.2, 0.2, PI - 0.2, 8, Color(0.1, 0.15, 0.3), 2.2)
+			draw_arc(Vector2(r * 0.34, -r * 0.05), r * 0.2, 0.2, PI - 0.2, 8, Color(0.1, 0.15, 0.3), 2.2)
+			draw_circle(Vector2(0, r * 0.35), r * 0.12, Color(0.3, 0.4, 0.6))
+			Util.cheek(self, Vector2(-r * 0.6, r * 0.2), r * 0.14)
+			Util.cheek(self, Vector2(r * 0.6, r * 0.2), r * 0.14)
+		"frostbomb":
+			# 얼음 폭탄: 달려와 멈추면 심지가 타다가 터지고, 얼음 바닥을 남긴다
+			var lit := fuse >= 0.0
+			var bcol := c
+			if lit and not white:
+				bcol = c.lerp(Color(1, 1, 1), 0.5 + 0.5 * sin(fuse * 34.0))
+			if lit:
+				draw_circle(Vector2.ZERO, BOMB_RADIUS, Color(0.6, 0.9, 1.0, 0.14))
+				draw_arc(Vector2.ZERO, BOMB_RADIUS, 0.0, TAU, 40, Color(0.75, 0.95, 1.0, 0.85), 2.5)
+			draw_circle(Vector2(0, r * 0.1), r, bcol)
+			draw_colored_polygon(Util.ellipse(Vector2(-r * 0.35, -r * 0.35), r * 0.3, r * 0.17, 10), Color(1, 1, 1, 0.6))
+			draw_arc(Vector2(0, r * 0.1), r * 0.7, 0.4, 2.2, 10, Color(1, 1, 1, 0.5), 1.4)
+			var cap := Color.WHITE if white else Color(0.85, 0.96, 1.0)
+			draw_colored_polygon(PackedVector2Array([
+				Vector2(-r * 0.4, -r * 0.8), Vector2(-r * 0.2, -r * 1.2), Vector2(0, -r * 0.9), Vector2(r * 0.2, -r * 1.25), Vector2(r * 0.4, -r * 0.8),
+			]), cap)
+			draw_line(Vector2(0, -r * 1.1), Vector2(r * 0.15, -r * 1.5), dark, 1.6)
+			draw_circle(Vector2(r * 0.17, -r * 1.55), r * 0.14, Color(1.0, 0.9, 0.4) if not lit else Color(1.0, 0.6, 0.3))
+			Util.eye(self, Vector2(-r * 0.34, 0), r * 0.26)
+			Util.eye(self, Vector2(r * 0.34, 0), r * 0.26)
+			draw_line(Vector2(-r * 0.62, -r * 0.32), Vector2(-r * 0.12, -r * 0.2), dark, 1.6)
+			draw_line(Vector2(r * 0.62, -r * 0.32), Vector2(r * 0.12, -r * 0.2), dark, 1.6)
+			if lit:
+				draw_circle(Vector2(0, r * 0.5), r * 0.2, Color(0.15, 0.2, 0.4))
+			else:
+				draw_arc(Vector2(0, r * 0.38), r * 0.2, 0.25, PI - 0.25, 8, dark, 1.5)
+		"yeti":
+			# 예티: 복슬복슬한 몸. 바닥을 내리치기 전에 두 팔을 번쩍 든다
+			var slam := charge_state >= 1
+			var fur := Color.WHITE if white else Color(0.93, 0.96, 1.0)
+			var fur_d := Color.WHITE if white else Color(0.7, 0.8, 0.95)
+			draw_colored_polygon(Util.ellipse(Vector2(-r * 0.45, r * 0.95), r * 0.4, r * 0.2, 10), fur_d)
+			draw_colored_polygon(Util.ellipse(Vector2(r * 0.45, r * 0.95), r * 0.4, r * 0.2, 10), fur_d)
+			draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.15), r * 1.05, r * 0.95, 22), fur)
+			draw_arc(Vector2(0, r * 0.15), r * 1.05, 0.5, 2.6, 12, fur_d, 2.0)
+			var arm_y := -r * 0.6 if slam else r * 0.3
+			var arm_a := -0.3 if slam else 0.35
+			_petal(Vector2(-r * 1.05, arm_y), -arm_a, r * 0.4, r * 0.65, fur)
+			_petal(Vector2(r * 1.05, arm_y), arm_a, r * 0.4, r * 0.65, fur)
+			draw_colored_polygon(Util.ellipse(Vector2(0, -r * 0.15), r * 0.68, r * 0.58, 16), Color.WHITE if white else Color(0.62, 0.82, 0.97))
+			for hx in [-1.0, 1.0]:
+				draw_colored_polygon(PackedVector2Array([Vector2(hx * r * 0.35, -r * 0.65), Vector2(hx * r * 0.62, -r * 0.65), Vector2(hx * r * 0.55, -r * 1.05)]), Color.WHITE if white else Color(0.75, 0.92, 1.0))
+			var eye_pupil := Color(0.55, 0.05, 0.05) if slam else Color(0.1, 0.1, 0.2)
+			Util.eye(self, Vector2(-r * 0.28, -r * 0.25), r * 0.22, Vector2.ZERO, eye_pupil)
+			Util.eye(self, Vector2(r * 0.28, -r * 0.25), r * 0.22, Vector2.ZERO, eye_pupil)
+			if slam:
+				draw_line(Vector2(-r * 0.55, -r * 0.55), Vector2(-r * 0.1, -r * 0.4), Color(0.15, 0.2, 0.35), 2.6)
+				draw_line(Vector2(r * 0.55, -r * 0.55), Vector2(r * 0.1, -r * 0.4), Color(0.15, 0.2, 0.35), 2.6)
+				draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.25, r * 0.0), Vector2(r * 0.25, r * 0.0), Vector2(r * 0.15, r * 0.3), Vector2(-r * 0.15, r * 0.3)]), Color(0.25, 0.1, 0.15))
+				draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.18, r * 0.0), Vector2(-r * 0.08, r * 0.0), Vector2(-r * 0.13, r * 0.12)]), Color.WHITE)
+				draw_colored_polygon(PackedVector2Array([Vector2(r * 0.08, r * 0.0), Vector2(r * 0.18, r * 0.0), Vector2(r * 0.13, r * 0.12)]), Color.WHITE)
+			else:
+				draw_arc(Vector2(0, r * 0.05), r * 0.2, 0.25, PI - 0.25, 8, Color(0.15, 0.2, 0.35), 2.0)
+			Util.cheek(self, Vector2(-r * 0.5, r * 0.02), r * 0.12)
+			Util.cheek(self, Vector2(r * 0.5, r * 0.02), r * 0.12)
+		"snowcaptain":
+			# 눈사람 대장: 모자와 목도리를 두른 커다란 눈사람
+			var snow := Color.WHITE if white else Color(0.94, 0.97, 1.0)
+			var snow_d := Color.WHITE if white else Color(0.66, 0.78, 0.94)
+			var wood := Color.WHITE if white else Color(0.45, 0.3, 0.2)
+			for sx in [-1.0, 1.0]:
+				draw_line(Vector2(sx * r * 0.75, r * 0.15), Vector2(sx * r * 1.55, -r * 0.45), wood, 4.0)
+				draw_line(Vector2(sx * r * 1.3, -r * 0.3), Vector2(sx * r * 1.5, -r * 0.7), wood, 2.5)
+				draw_line(Vector2(sx * r * 1.35, -r * 0.33), Vector2(sx * r * 1.7, -r * 0.3), wood, 2.5)
+			draw_circle(Vector2(0, r * 0.4), r * 0.9, snow)
+			draw_arc(Vector2(0, r * 0.4), r * 0.9, 0.3, 2.9, 14, snow_d, 2.5)
+			draw_circle(Vector2(0, -r * 0.5), r * 0.62, snow)
+			draw_arc(Vector2(0, -r * 0.5), r * 0.62, 0.3, 2.9, 12, snow_d, 2.5)
+			draw_colored_polygon(Util.ellipse(Vector2(0, r * 0.02), r * 0.7, r * 0.16, 14), Color.WHITE if white else Color(0.9, 0.25, 0.3))
+			draw_colored_polygon(PackedVector2Array([Vector2(r * 0.3, r * 0.05), Vector2(r * 0.6, r * 0.05), Vector2(r * 0.6, r * 0.55), Vector2(r * 0.35, r * 0.5)]), Color.WHITE if white else Color(0.8, 0.2, 0.28))
+			for by in [0.4, 0.7]:
+				draw_circle(Vector2(0, r * by), r * 0.07, Color(0.15, 0.15, 0.25))
+			draw_rect(Rect2(-r * 0.62, -r * 1.02, r * 1.24, r * 0.15), Color.WHITE if white else Color(0.15, 0.15, 0.28))
+			draw_rect(Rect2(-r * 0.4, -r * 1.55, r * 0.8, r * 0.55), Color.WHITE if white else Color(0.2, 0.2, 0.35))
+			draw_rect(Rect2(-r * 0.4, -r * 1.12, r * 0.8, r * 0.1), Color.WHITE if white else Color(0.9, 0.3, 0.4))
+			var eye_c := Color(0.6, 0.1, 0.1) if rage else Color(0.1, 0.1, 0.2)
+			Util.eye(self, Vector2(-r * 0.24, -r * 0.6), r * 0.2, Vector2.ZERO, eye_c)
+			Util.eye(self, Vector2(r * 0.24, -r * 0.6), r * 0.2, Vector2.ZERO, eye_c)
+			draw_colored_polygon(PackedVector2Array([Vector2(-r * 0.06, -r * 0.42), Vector2(r * 0.06, -r * 0.42), Vector2(r * 0.55, -r * 0.34)]), Color.WHITE if white else Color(1.0, 0.6, 0.25))
+			if rage:
+				draw_line(Vector2(-r * 0.42, -r * 0.82), Vector2(-r * 0.08, -r * 0.7), Color(0.15, 0.1, 0.1), 3.0)
+				draw_line(Vector2(r * 0.42, -r * 0.82), Vector2(r * 0.08, -r * 0.7), Color(0.15, 0.1, 0.1), 3.0)
+			for k in 5:
+				var a := 0.5 + 0.55 * float(k)
+				draw_circle(Vector2(cos(a) * r * 0.32, -r * 0.3 + sin(a) * r * 0.18), r * 0.04, Color(0.15, 0.15, 0.25))
+			Util.cheek(self, Vector2(-r * 0.45, -r * 0.4), r * 0.1)
+			Util.cheek(self, Vector2(r * 0.45, -r * 0.4), r * 0.1)
+		"freezecore":
+			# 폭주 대형 냉동고: 웃는 얼굴이 있는 커다란 냉장고. 화나면 문이 벌어진다
+			var body := Color.WHITE if white else Color(0.78, 0.9, 0.98)
+			var body_d := Color.WHITE if white else Color(0.5, 0.66, 0.82)
+			var door := Color.WHITE if white else Color(0.88, 0.95, 1.0)
+			for sx in [-1.0, 1.0]:
+				draw_rect(Rect2(sx * r * 0.6 - r * 0.15, r * 1.0, r * 0.3, r * 0.2), Color.WHITE if white else Color(0.3, 0.38, 0.5))
+				draw_polyline(PackedVector2Array([Vector2(sx * r * 0.85, -r * 0.5), Vector2(sx * r * 1.15, -r * 0.3), Vector2(sx * r * 1.05, r * 0.3), Vector2(sx * r * 1.25, r * 0.6)]), Color.WHITE if white else Color(0.3, 0.55, 0.7), 4.0)
+			draw_rect(Rect2(-r * 0.85, -r * 1.05, r * 1.7, r * 2.1), body)
+			draw_rect(Rect2(-r * 0.78, -r * 0.98, r * 1.56, r * 1.0), door)
+			draw_rect(Rect2(-r * 0.78, r * 0.08, r * 1.56, r * 0.9), door)
+			draw_rect(Rect2(-r * 0.85, -r * 1.05, r * 1.7, r * 2.1), body_d, false, 3.0)
+			draw_rect(Rect2(r * 0.55, -r * 0.8, r * 0.1, r * 0.55), body_d)
+			draw_rect(Rect2(r * 0.55, r * 0.25, r * 0.1, r * 0.55), body_d)
+			draw_rect(Rect2(-r * 0.6, -r * 0.9, r * 0.5, r * 0.16), Color.WHITE if white else Color(0.1, 0.2, 0.3))
+			draw_rect(Rect2(-r * 0.55, -r * 0.87, r * 0.12, r * 0.1), Color(0.4, 1.0, 1.0))
+			draw_rect(Rect2(-r * 0.38, -r * 0.87, r * 0.12, r * 0.1), Color(0.4, 1.0, 1.0))
+			for tx in [-0.6, -0.2, 0.2, 0.6]:
+				draw_colored_polygon(PackedVector2Array([Vector2(r * (tx - 0.12), -r * 1.05), Vector2(r * (tx + 0.12), -r * 1.05), Vector2(r * tx, -r * 0.82)]), Color.WHITE if white else Color(0.85, 0.96, 1.0))
+			for pp in [Vector3(-0.5, -1.1, 0.3), Vector3(0.0, -1.18, 0.38), Vector3(0.5, -1.1, 0.3)]:
+				draw_circle(Vector2(pp.x, pp.y) * r, pp.z * r, Color.WHITE)
+			var gl := Color(1.0, 0.25, 0.3) if rage else Color(0.1, 0.1, 0.2)
+			Util.eye(self, Vector2(-r * 0.32, -r * 0.45), r * 0.27, Vector2.ZERO, gl)
+			Util.eye(self, Vector2(r * 0.32, -r * 0.45), r * 0.27, Vector2.ZERO, gl)
+			if rage:
+				draw_line(Vector2(-r * 0.65, -r * 0.8), Vector2(-r * 0.1, -r * 0.62), Color(0.2, 0.1, 0.15), 4.0)
+				draw_line(Vector2(r * 0.65, -r * 0.8), Vector2(r * 0.1, -r * 0.62), Color(0.2, 0.1, 0.15), 4.0)
+				draw_rect(Rect2(-r * 0.5, r * 0.2, r * 1.0, r * 0.55), Color(0.08, 0.16, 0.3))
+				for tx in [-0.4, -0.13, 0.14, 0.4]:
+					draw_colored_polygon(PackedVector2Array([Vector2(r * tx, r * 0.2), Vector2(r * (tx + 0.2), r * 0.2), Vector2(r * (tx + 0.1), r * 0.42)]), Color.WHITE)
+				draw_circle(Vector2(0, r * 0.62), r * 0.14, Color(0.6, 0.9, 1.0, 0.8))
+			else:
+				draw_arc(Vector2(0, -r * 0.12), r * 0.28, 0.2, PI - 0.2, 10, Color(0.15, 0.2, 0.35), 3.0)
+				for fy in [0.35, 0.55, 0.75]:
+					draw_arc(Vector2(-r * 0.2, r * fy), r * 0.25, PI, TAU, 8, Color(0.75, 0.9, 1.0), 2.0)
+			Util.cheek(self, Vector2(-r * 0.6, -r * 0.2), r * 0.13)
+			Util.cheek(self, Vector2(r * 0.6, -r * 0.2), r * 0.13)
 		"jellyking":
 			var pts := Util.blob(Vector2(0, r * 0.15), r * 1.1, r * 1.0, 26)
 			draw_colored_polygon(pts, c)

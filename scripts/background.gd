@@ -8,7 +8,7 @@ const SEAM := Color(0.055, 0.065, 0.115)
 var cam_pos := Vector2.ZERO
 var view_size := Vector2(1280, 720)
 var t := 0.0
-var style := "station"    # station / greenhouse
+var style := "station"    # station / greenhouse / freezer
 
 
 func _ready() -> void:
@@ -16,10 +16,13 @@ func _ready() -> void:
 
 
 func _draw() -> void:
-	if style == "greenhouse":
-		_draw_greenhouse()
-	else:
-		_draw_station()
+	match style:
+		"greenhouse":
+			_draw_greenhouse()
+		"freezer":
+			_draw_freezer()
+		_:
+			_draw_station()
 
 
 func _draw_station() -> void:
@@ -272,3 +275,131 @@ func _petal_bg(center: Vector2, ang: float, col: Color) -> void:
 		var a := TAU * float(i) / 10.0
 		pts.append(center + Vector2(cos(a) * 7.0, sin(a) * 3.2).rotated(ang - PI / 2.0))
 	draw_colored_polygon(pts, col)
+
+
+# ─────────────────────────────────────────────
+# 냉동 창고: 서리 낀 철판 바닥, 얼음 판, 눈더미, 쌓인 상자, 떨어지는 눈
+# ─────────────────────────────────────────────
+func _draw_freezer() -> void:
+	var half := view_size / 2.0 + Vector2(CELL, CELL)
+	var left := cam_pos.x - half.x
+	var top := cam_pos.y - half.y
+	draw_rect(Rect2(left, top, half.x * 2.0, half.y * 2.0), Color(0.05, 0.09, 0.15))
+
+	var cx0 := floori(left / CELL)
+	var cx1 := floori((cam_pos.x + half.x) / CELL)
+	var cy0 := floori(top / CELL)
+	var cy1 := floori((cam_pos.y + half.y) / CELL)
+
+	for cx in range(cx0, cx1 + 1):
+		for cy in range(cy0, cy1 + 1):
+			var h := Util.hash2(cx - 700, cy + 500)
+			var x := float(cx * CELL)
+			var y := float(cy * CELL)
+			var rect := Rect2(x + 2, y + 2, CELL - 4, CELL - 4)
+			if h < 0.2:
+				# 두꺼운 얼음 판: 밝고 투명한 파란색에 금이 간다
+				var m := 0.34 + 0.05 * Util.hash2(cx + 3, cy + 8)
+				draw_rect(rect, Color(m * 0.7, m + 0.12, m + 0.22))
+				draw_rect(Rect2(x + 2, y + 2, CELL - 4, 4), Color(1, 1, 1, 0.12))
+				var a := Util.hash2(cx + 11, cy) * TAU
+				var c0 := Vector2(x + CELL * 0.5, y + CELL * 0.5)
+				for k in 3:
+					var ang := a + float(k) * 2.1
+					draw_line(c0, c0 + Vector2.from_angle(ang) * (14.0 + 18.0 * Util.hash2(cx + k, cy - k)), Color(1, 1, 1, 0.4), 1.2)
+			else:
+				# 서리 낀 철판
+				var shade := 0.14 + 0.03 * Util.hash2(cx + 5, cy + 9)
+				draw_rect(rect, Color(shade * 0.85, shade + 0.06, shade + 0.13))
+				draw_rect(Rect2(x + 2, y + 2, CELL - 4, 3), Color(0.85, 0.95, 1.0, 0.07))
+				draw_rect(Rect2(x + 2, y + CELL - 6, CELL - 4, 3), Color(0.0, 0.03, 0.08, 0.35))
+				# 모서리에 낀 서리
+				if h > 0.6:
+					draw_colored_polygon(PackedVector2Array([Vector2(x + 2, y + 2), Vector2(x + 22, y + 2), Vector2(x + 2, y + 22)]), Color(0.9, 0.97, 1.0, 0.12))
+				if h > 0.5:
+					for p in [Vector2(9, 9), Vector2(CELL - 9, CELL - 9)]:
+						draw_circle(Vector2(x, y) + p, 2.0, Color(0.03, 0.06, 0.12, 0.7))
+						draw_circle(Vector2(x, y) + p + Vector2(-0.5, -0.5), 0.8, Color(1, 1, 1, 0.2))
+			# 안내선 (차가운 파란색)
+			if h > 0.94:
+				var glow := Color(0.5, 0.9, 1.0)
+				var pulse := 0.3 + 0.12 * sin(t * 2.0 + h * 40.0)
+				draw_rect(Rect2(x, y + CELL / 2.0 - 3, CELL, 6), Color(glow.r, glow.g, glow.b, pulse * 0.5))
+				draw_rect(Rect2(x, y + CELL / 2.0 - 1, CELL, 2), Color(glow.r, glow.g, glow.b, pulse + 0.35))
+			# 장식물
+			var hd := Util.hash2(cx + 191, cy - 137)
+			if hd > 0.87:
+				var ox := x + Util.hash2(cx, cy + 5) * (CELL - 44.0) + 22.0
+				var oy := y + Util.hash2(cx + 3, cy) * (CELL - 44.0) + 22.0
+				_freezer_deco(int(hd * 1000.0) % 6, Vector2(ox, oy), hd)
+
+	# 차가운 안개가 천천히 흐른다
+	for i in 5:
+		var fx := cam_pos.x - half.x + fposmod(float(i) * 310.0 + t * 9.0, half.x * 2.0 + 400.0) - 200.0
+		var fy := cam_pos.y - half.y * 0.6 + float(i % 3) * half.y * 0.55 + sin(t * 0.3 + float(i)) * 20.0
+		draw_colored_polygon(Util.ellipse(Vector2(fx, fy), 260.0, 70.0, 20), Color(0.8, 0.93, 1.0, 0.035))
+	# 떨어지는 눈송이
+	for i in 44:
+		var sx := cam_pos.x - half.x + fposmod(Util.hash2(i, 33) * (half.x * 2.0) + sin(t * 0.7 + float(i)) * 18.0, half.x * 2.0)
+		var sy := cam_pos.y - half.y + fposmod(Util.hash2(i, 44) * (half.y * 2.0) + t * (28.0 + float(i % 6) * 8.0), half.y * 2.0)
+		draw_circle(Vector2(sx, sy), 1.4 + float(i % 3) * 0.7, Color(1, 1, 1, 0.55 + 0.3 * float(i % 2)))
+
+
+func _freezer_deco(kind: int, p: Vector2, v: float) -> void:
+	match kind:
+		0:  # 눈더미
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 12), 22, 6), Color(0, 0, 0, 0.25))
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 4), 22, 13, 18), Color(0.92, 0.97, 1.0))
+			draw_colored_polygon(Util.ellipse(p + Vector2(-8, -1), 12, 8, 14), Color.WHITE)
+			draw_colored_polygon(Util.ellipse(p + Vector2(10, 8), 12, 5, 12), Color(0.75, 0.86, 0.98))
+			draw_line(p + Vector2(-14, 8), p + Vector2(-6, 10), Color(0.7, 0.82, 0.96), 1.5)
+			draw_line(p + Vector2(4, -6), p + Vector2(12, -3), Color(0.78, 0.88, 0.98), 1.5)
+		1:  # 얼어붙은 상자 (고드름이 달렸다)
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 14), 17, 5), Color(0, 0, 0, 0.3))
+			draw_rect(Rect2(p.x - 14, p.y - 10, 28, 24), Color(0.5, 0.62, 0.78))
+			draw_rect(Rect2(p.x - 14, p.y - 10, 28, 6), Color(0.85, 0.94, 1.0))
+			draw_rect(Rect2(p.x - 3, p.y - 10, 6, 24), Color(0.75, 0.86, 0.98, 0.8))
+			draw_rect(Rect2(p.x - 14, p.y - 10, 28, 24), Color(0.25, 0.35, 0.5), false, 1.5)
+			for ix in [-10.0, -2.0, 8.0]:
+				draw_colored_polygon(PackedVector2Array([Vector2(p.x + ix - 2, p.y - 4), Vector2(p.x + ix + 2, p.y - 4), Vector2(p.x + ix, p.y + 3 + 3.0 * absf(sin(v * 20.0 + ix)))]), Color(0.9, 0.98, 1.0))
+		2:  # 얼음 결정 무리
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 12), 15, 4.5), Color(0, 0, 0, 0.3))
+			for e in [Vector3(-9, 4, 0.8), Vector3(2, 6, 1.1), Vector3(12, 8, 0.7)]:
+				var b := p + Vector2(e.x, e.y)
+				draw_colored_polygon(PackedVector2Array([b + Vector2(-5 * e.z, 0), b + Vector2(-2 * e.z, -18 * e.z), b + Vector2(3 * e.z, -12 * e.z), b + Vector2(5 * e.z, 0)]), Color(0.65, 0.88, 1.0, 0.9))
+				draw_line(b + Vector2(-1 * e.z, -1), b + Vector2(-1 * e.z, -14 * e.z), Color(1, 1, 1, 0.8), 1.4)
+			var glow := 0.5 + 0.5 * sin(t * 2.0 + v * 30.0)
+			draw_circle(p, 22.0, Color(0.6, 0.9, 1.0, 0.05 + 0.04 * glow))
+		3:  # 냉동고 (작은 문이 달린 상자)
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 15), 16, 4.5), Color(0, 0, 0, 0.3))
+			draw_rect(Rect2(p.x - 13, p.y - 16, 26, 31), Color(0.82, 0.92, 1.0))
+			draw_rect(Rect2(p.x - 13, p.y - 16, 26, 31), Color(0.45, 0.6, 0.8), false, 1.5)
+			draw_line(Vector2(p.x - 13, p.y - 2), Vector2(p.x + 13, p.y - 2), Color(0.45, 0.6, 0.8), 1.5)
+			draw_rect(Rect2(p.x + 8, p.y - 12, 2, 8), Color(0.45, 0.6, 0.8))
+			draw_rect(Rect2(p.x + 8, p.y + 2, 2, 8), Color(0.45, 0.6, 0.8))
+			draw_rect(Rect2(p.x - 9, p.y - 12, 9, 4), Color(0.1, 0.2, 0.3))
+			draw_rect(Rect2(p.x - 8, p.y - 11, 2, 2), Color(0.4, 1.0, 1.0))
+			draw_circle(p + Vector2(-4, 6), 1.3, Color(0.2, 0.25, 0.4))
+			draw_circle(p + Vector2(2, 6), 1.3, Color(0.2, 0.25, 0.4))
+			draw_arc(p + Vector2(-1, 8), 2.0, 0.2, PI - 0.2, 5, Color(0.2, 0.25, 0.4), 1.0)
+		4:  # 눈사람
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 15), 14, 4.5), Color(0, 0, 0, 0.3))
+			draw_circle(p + Vector2(0, 6), 10, Color(0.95, 0.98, 1.0))
+			draw_circle(p + Vector2(0, -8), 7.5, Color(0.97, 0.99, 1.0))
+			draw_arc(p + Vector2(0, 6), 10, 0.3, 2.9, 8, Color(0.7, 0.82, 0.95), 1.5)
+			draw_rect(Rect2(p.x - 5, p.y - 20, 10, 6), Color(0.25, 0.25, 0.4))
+			draw_rect(Rect2(p.x - 8, p.y - 15, 16, 2), Color(0.25, 0.25, 0.4))
+			draw_line(p + Vector2(-9, 4), p + Vector2(-18, -3), Color(0.45, 0.3, 0.2), 1.6)
+			draw_line(p + Vector2(9, 4), p + Vector2(18, -3), Color(0.45, 0.3, 0.2), 1.6)
+			draw_circle(p + Vector2(-2.5, -9), 1.2, Color(0.1, 0.1, 0.2))
+			draw_circle(p + Vector2(2.5, -9), 1.2, Color(0.1, 0.1, 0.2))
+			draw_colored_polygon(PackedVector2Array([p + Vector2(0, -7), p + Vector2(6, -6), p + Vector2(0, -5)]), Color(1.0, 0.6, 0.25))
+			draw_rect(Rect2(p.x - 7, p.y - 2, 14, 3), Color(0.9, 0.3, 0.35))
+		_:  # 서리 낀 전등
+			draw_colored_polygon(Util.ellipse(p + Vector2(0, 12), 10, 3.5), Color(0, 0, 0, 0.3))
+			draw_line(p + Vector2(0, 12), p + Vector2(0, -14), Color(0.55, 0.65, 0.8), 3.0)
+			var flick := 0.6 + 0.2 * sin(t * 3.0 + v * 20.0)
+			draw_circle(p + Vector2(0, -16), 15.0, Color(0.7, 0.92, 1.0, 0.12 * flick))
+			draw_circle(p + Vector2(0, -16), 6.5, Color(0.85, 0.96, 1.0, 0.95))
+			draw_circle(p + Vector2(-2, -18), 2.0, Color(1, 1, 1, 0.9))
+			draw_colored_polygon(PackedVector2Array([p + Vector2(-3, -10), p + Vector2(3, -10), p + Vector2(0, -4)]), Color(0.9, 0.98, 1.0))

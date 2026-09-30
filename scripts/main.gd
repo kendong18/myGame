@@ -227,6 +227,7 @@ func _update_game(delta: float) -> void:
 		_bot_dash(input)
 	elif Input.is_action_just_pressed("dash"):
 		_do_dash(input)
+	player.on_ice = _on_ice(player.position)
 	player.step(delta, input)
 	if god:
 		player.hp = player.max_hp
@@ -748,6 +749,53 @@ func _boss_ai(e: Enemy, delta: float, dir: Vector2) -> void:
 				var bulbs := 4 if rage else 3
 				for i in bulbs:
 					spawn_enemy("bulb", {"pos": e.position + Vector2.from_angle(TAU * (float(i) + 0.5) / float(bulbs)) * 110.0})
+		"snowcaptain":
+			var rage := ratio < 0.4
+			if rage and not e.rage:
+				e.rage = true
+				e.queue_redraw()
+				hud.show_banner("눈사람 대장이 화났다!", Color(0.7, 0.9, 1.0))
+			if e.skill_t <= 0.0:
+				e.skill_t = 2.6 if rage else 3.6
+				var n := 9 if rage else 7
+				for i in n:
+					var k := (float(i) / float(n - 1) - 0.5) * 1.2
+					add_shot(EnemyShot.make(e.position, dir.rotated(k) * 200.0, 11.0, Color(0.85, 0.95, 1.0), 8.0, "눈사람 대장", 1.2))
+			if e.skill2_t <= 0.0:
+				e.skill2_t = 6.0 if rage else 8.0
+				_frost_strike(5 if rage else 3)
+			if e.skill3_t <= 0.0:
+				e.skill3_t = 11.0 if rage else 14.0
+				for i in 6:
+					spawn_enemy("snowball", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 80.0})
+				for i in 2:
+					spawn_enemy("penguin", {"pos": e.position + Vector2.from_angle(PI * float(i) + 0.5) * 100.0})
+		"freezecore":
+			var rage := ratio < 0.35
+			if rage and not e.rage:
+				e.rage = true
+				e.speed = 50.0
+				e.queue_redraw()
+				hud.show_banner("냉동고가 폭주한다!", Color(1.0, 0.4, 0.4))
+			if e.skill_t <= 0.0:
+				e.skill_t = 2.8 if rage else 3.8
+				_enemy_ring(e.position, 16 if rage else 12, 145.0, 12.0, e.spin, "폭주 대형 냉동고", Color(0.7, 0.93, 1.0))
+				e.spin += 0.21
+			if e.skill2_t <= 0.0:
+				e.skill2_t = 5.5 if rage else 7.5
+				_frost_strike(8 if rage else 5)
+			if e.skill3_t <= 0.0:
+				e.skill3_t = 9.0 if rage else 12.0
+				# 냉기 빔과 부하 소환을 번갈아 쓴다
+				e.charge_state = 1 - e.charge_state
+				if e.charge_state == 1:
+					_cast_sweep(e.position, 3 if rage else 2, rage)
+				else:
+					for i in 6:
+						spawn_enemy("penguin", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 100.0})
+					var bombs := 4 if rage else 3
+					for i in bombs:
+						spawn_enemy("frostbomb", {"pos": e.position + Vector2.from_angle(TAU * (float(i) + 0.5) / float(bombs)) * 130.0})
 
 
 ## 원거리 적이 탄을 쏜다. 해바라기는 부채꼴로 세 발, 그 밖에는 한 발
@@ -756,6 +804,10 @@ func _enemy_fire(e: Enemy, dir: Vector2) -> void:
 		var src := T.t(str(GameData.ENEMIES[e.kind].name))
 		for k in [-0.3, 0.0, 0.3]:
 			add_shot(EnemyShot.make(e.position, dir.rotated(k) * 170.0, e.damage, Color(1.0, 0.85, 0.25), 6.0, src))
+	elif e.pattern == "frost":
+		var fsrc := T.t(str(GameData.ENEMIES[e.kind].name))
+		for k in [-0.2, 0.0, 0.2]:
+			add_shot(EnemyShot.make(e.position, dir.rotated(k) * 135.0, e.damage, Color(0.7, 0.93, 1.0), 6.0, fsrc, 1.6))
 	else:
 		add_shot(EnemyShot.make(e.position, dir * 150.0, 5.0, Color(0.65, 0.45, 1.0), 6.0, "포탑 봇"))
 
@@ -781,6 +833,10 @@ func _special_move(e: Enemy, delta: float, dir: Vector2, dist: float) -> Vector2
 			return dir * e.speed
 		"charger":
 			return _charger_move(e, delta, dir, dist)
+		"slider":
+			return _slider_move(e, delta, dir, dist)
+		"slammer":
+			return _slammer_move(e, delta, dir, dist)
 	return dir * e.speed
 
 
@@ -788,10 +844,17 @@ func _bulb_explode(e: Enemy) -> void:
 	e.dead = true
 	e.visible = false
 	var pos := e.position
+	var icy: bool = str(GameData.ENEMIES[e.kind].get("explode", "")) == "frost"
 	if pos.distance_to(player.position) < Enemy.BOMB_RADIUS + Player.RADIUS - 4.0:
+		var slow_ok := icy and player.invuln <= 0.0
 		_hurt_player(e.damage, T.t(str(GameData.ENEMIES[e.kind].name)))
-	add_fx(Fx.ring(pos, Color(1.0, 0.5, 0.3), Enemy.BOMB_RADIUS * 0.9, 0.35))
-	add_fx(Fx.puff(pos, Color(1.0, 0.6, 0.3), 26.0))
+		if slow_ok:
+			player.slow_t = maxf(player.slow_t, 2.0)
+	var boom_col := Color(0.65, 0.92, 1.0) if icy else Color(1.0, 0.5, 0.3)
+	if icy:
+		add_hazard(Hazard.ice(pos, 72.0, 10.0))
+	add_fx(Fx.ring(pos, boom_col, Enemy.BOMB_RADIUS * 0.9, 0.35))
+	add_fx(Fx.puff(pos, boom_col.lightened(0.2), 26.0))
 	Sfx.play("mine", 0.1)
 	shake(2.5, 0.12)
 
@@ -846,16 +909,117 @@ func _update_hazards(delta: float) -> void:
 			continue
 		h.step(delta)
 		match h.kind:
-			"thorns":
+			"thorns", "frost":
 				if h.just_fired:
 					h.just_fired = false
 					if h.contains(player.position, Player.RADIUS - 4.0):
+						var slow_ok: bool = h.kind == "frost" and player.invuln <= 0.0
 						_hurt_player(h.damage, T.t(h.source))
+						if slow_ok:
+							player.slow_t = maxf(player.slow_t, 2.0)
 					shake(2.0, 0.08)
+			"sweep":
+				if h.tick <= 0.0 and h.sweep_hits(player.position, Player.RADIUS - 6.0):
+					h.tick = 0.2
+					var slow_ok2 := player.invuln <= 0.0
+					_hurt_player(h.damage, T.t(h.source))
+					if slow_ok2:
+						player.slow_t = maxf(player.slow_t, 1.0)
 			"spore":
 				if h.tick <= 0.0 and h.contains(player.position, Player.RADIUS - 6.0):
 					h.tick = 0.5
 					_hurt_player(h.damage, T.t(h.source))
+
+
+## 펭귄 로봇: 걸어오다가 잠깐 웅크린 뒤 배로 쭉 미끄러진다. 끝나면 바로 다시 쫓아온다
+func _slider_move(e: Enemy, delta: float, dir: Vector2, dist: float) -> Vector2:
+	match e.charge_state:
+		0:
+			e.charge_t -= delta
+			if e.charge_t <= 0.0 and dist < 340.0 and e.stun <= 0.0:
+				e.charge_state = 1
+				e.charge_t = 0.35
+				e.charge_dir = dir
+				e.queue_redraw()
+			return dir * e.speed
+		1:
+			if e.stun <= 0.0:
+				e.charge_t -= delta
+			if e.charge_t <= 0.0:
+				e.charge_state = 2
+				e.charge_t = 0.7
+			return Vector2.ZERO
+	e.charge_t -= delta
+	if e.charge_t <= 0.0:
+		e.charge_state = 0
+		e.charge_t = randf_range(2.5, 4.0)
+		e.queue_redraw()
+	return e.charge_dir * 300.0
+
+
+## 예티: 가까이 오면 멈춰서 팔을 들고, 잠시 뒤 자기 주변에 냉기를 터뜨린다 (터질 범위는 미리 보인다)
+func _slammer_move(e: Enemy, delta: float, dir: Vector2, dist: float) -> Vector2:
+	if e.charge_state == 0:
+		e.charge_t -= delta
+		if e.charge_t <= 0.0 and dist < 230.0 and e.stun <= 0.0:
+			e.charge_state = 1
+			e.charge_t = 0.9
+			e.queue_redraw()
+			add_hazard(Hazard.frost(e.position, 118.0, 0.9, e.damage, "예티"))
+		return dir * e.speed
+	if e.stun <= 0.0:
+		e.charge_t -= delta
+	if e.charge_t <= 0.0:
+		e.charge_state = 0
+		e.charge_t = randf_range(4.5, 6.5)
+		e.queue_redraw()
+	return Vector2.ZERO
+
+
+func _on_ice(pos: Vector2) -> bool:
+	for h in hazards:
+		if h.kind == "ice" and not h.dead and h.contains(pos):
+			return true
+	return false
+
+
+## 플레이어 주변에 냉기가 터질 자리를 미리 보여 준다. 첫 번째는 서 있는 자리다.
+func _frost_strike(n: int) -> void:
+	for i in n:
+		var pos := player.position
+		if i > 0:
+			pos += Vector2.from_angle(randf() * TAU) * randf_range(40.0, 240.0)
+		add_hazard(Hazard.frost(pos, 58.0, 1.25, _hazard_damage(16.0), "냉기 폭발"))
+	Sfx.play("warning", 0.05)
+
+
+## 보스 위치에서 냉기 빔이 예고 뒤에 빙글 돈다
+func _cast_sweep(pos: Vector2, count: int, fast: bool) -> void:
+	var spin_speed := (1.1 if fast else 0.8) * (1.0 if randf() < 0.5 else -1.0)
+	add_hazard(Hazard.sweep(pos, count, randf() * TAU, spin_speed, 1.2, 3.4, _hazard_damage(14.0), "냉기 빔"))
+	Sfx.play("warning", 0.05)
+
+
+func _env_ice(n: int) -> void:
+	if not _env_seen.has("ice"):
+		_env_seen["ice"] = true
+		hud.show_banner("얼음 바닥! 미끄러우니 조심하세요", Color(0.7, 0.92, 1.0))
+	for _i in n:
+		var pos := player.position + Vector2.from_angle(randf() * TAU) * randf_range(80.0, 330.0)
+		add_hazard(Hazard.ice(pos, 105.0, 16.0))
+
+
+## 플레이어 주변에 냉기가 터질 자리를 미리 보여 준다. 첫 번째는 걸어가는 방향 앞쪽이다.
+func _env_frost(n: int) -> void:
+	if not _env_seen.has("frost"):
+		_env_seen["frost"] = true
+		hud.show_banner("냉기가 터진다! 맞으면 느려집니다", Color(0.75, 0.93, 1.0))
+	for i in n:
+		var pos := player.position + player.dir * 80.0
+		if i > 0:
+			pos = player.position + Vector2.from_angle(randf() * TAU) * randf_range(50.0, 260.0)
+		add_hazard(Hazard.frost(pos, 55.0, 1.2, _hazard_damage(10.0), "냉기 폭발"))
+
 
 
 func _in_puddle(pos: Vector2) -> bool:
@@ -887,6 +1051,11 @@ func _run_env() -> void:
 					_env_thorns(int(entry.count) + int(time / 200.0))
 			"puddle":
 				_env_puddles(int(entry.count))
+			"ice":
+				_env_ice(int(entry.count))
+			"frost":
+				if not final_boss_spawned:
+					_env_frost(int(entry.count) + int(time / 200.0))
 
 
 ## 플레이어 주변에 가시 덩굴이 솟을 자리를 미리 보여 준다. 첫 번째는 걸어가는 방향 앞쪽이다.
@@ -950,7 +1119,10 @@ func _update_shots(delta: float) -> void:
 		var rr := s.radius + Player.RADIUS - 2.0
 		if d2 < rr * rr:
 			s.dead = true
+			var slowed := s.slow > 0.0 and player.invuln <= 0.0
 			_hurt_player(s.damage, T.t(s.source))
+			if slowed:
+				player.slow_t = maxf(player.slow_t, s.slow)
 
 
 # ─────────────────────────────────────────────
@@ -1174,6 +1346,9 @@ func _kill_enemy(e: Enemy) -> void:
 		hud.show_banner(T.f("%s 격파!", [T.t(str(GameData.ENEMIES[e.kind].name))]), Color(1, 0.85, 0.3))
 		shake(8.0, 0.4)
 		return
+	if GameData.ENEMIES[e.kind].get("on_death", "") == "split":
+		for i in 3:
+			spawn_enemy("snowball", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 3.0 + randf()) * 22.0})
 	if GameData.ENEMIES[e.kind].get("on_death", "") == "spore":
 		add_hazard(Hazard.spore(e.position, e.radius * 4.2, 4.5, e.damage * 0.55, "버섯 포자"))
 	spawn_gem(e.position, e.xp)

@@ -3,6 +3,8 @@ extends Node2D
 ## 플레이어: 이동, 체력, 스탯, 보유 무기/패시브
 
 const RADIUS := 12.0
+const SLOW_MUL := 0.55        # 냉기에 맞았을 때의 이동 속도 배율
+const ICE_ACCEL := 330.0      # 얼음 위에서 속도가 바뀌는 빠르기 (픽셀/초²)
 
 var character_id := "coco"
 var palette: Dictionary = {}
@@ -37,6 +39,9 @@ var ability := ""                # 캐릭터 고유 능력
 var beams: Array = []            # 냉각 레이저가 매 프레임 채워 넣는 빔 정보
 var shields: Array = []          # 반사 방패가 채워 넣는 방패 정보
 var dash_dir := Vector2.RIGHT
+var slow_t := 0.0                # 냉기에 맞아 느려지는 남은 시간
+var on_ice := false              # 얼음 바닥 위에 있는가 (Main 이 매 프레임 정한다)
+var slide_vel := Vector2.ZERO    # 얼음 위에서 미끄러지는 속도
 var trail: Array = []            # 잔상 [월드 위치, 나이]
 
 
@@ -130,7 +135,14 @@ func step(delta: float, input: Vector2) -> void:
 		if absf(dash_dir.x) > 0.1:
 			face_x = signf(dash_dir.x)
 	else:
-		position += input * GameData.BASE_SPEED * float(stats["move_speed"]) * delta
+		var want := input * GameData.BASE_SPEED * float(stats["move_speed"]) * (SLOW_MUL if slow_t > 0.0 else 1.0)
+		if on_ice:
+			# 얼음 위에서는 속도가 천천히 붙고 천천히 줄어든다
+			slide_vel = slide_vel.move_toward(want, ICE_ACCEL * delta)
+		else:
+			slide_vel = want
+		position += slide_vel * delta
+	slow_t = maxf(0.0, slow_t - delta)
 	# 대시 충전: 모아 둔 횟수가 가득 차지 않았다면 하나씩 채운다
 	if dash_charges < dash_max:
 		dash_cd -= delta
@@ -214,6 +226,13 @@ func take_damage(amount: float) -> bool:
 
 
 func _draw() -> void:
+	# 냉기에 맞아 느려진 표시: 몸 주위의 얼음 조각
+	if slow_t > 0.0:
+		draw_arc(Vector2.ZERO, 17.0, 0.0, TAU, 24, Color(0.65, 0.92, 1.0, 0.75), 2.5)
+		for i in 4:
+			var a := TAU * float(i) / 4.0 + slow_t * 2.0
+			var c := Vector2.from_angle(a) * 17.0
+			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -5), c + Vector2(3, 0), c + Vector2(0, 5), c + Vector2(-3, 0)]), Color(0.85, 0.97, 1.0, 0.95))
 	# 진공청소기: 안쪽으로 빨려 들어가는 소용돌이
 	if aura_radius > 0.0:
 		var ac := Color(0.75, 0.5, 1.0) if aura_evolved else Color(0.5, 0.9, 0.95)

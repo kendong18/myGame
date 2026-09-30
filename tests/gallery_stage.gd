@@ -37,17 +37,24 @@ func _ready() -> void:
 	raged.rage = true
 	raged.queue_redraw()
 
-	# 3줄: 위험 지대 (예고, 솟은 가시, 포자, 물웅덩이)
-	_hazard(Hazard.thorns(Vector2(150, 560), 55.0, 1.2, 10.0, "가시 덩굴"), 0.85)
-	_hazard(Hazard.thorns(Vector2(350, 560), 55.0, 1.2, 10.0, "가시 덩굴"), 1.32)
-	_hazard(Hazard.spore(Vector2(560, 560), 60.0, 4.5, 4.0, "버섯 포자"), 1.5)
-	_hazard(Hazard.puddle(Vector2(800, 560), 85.0, 12.0), 3.0)
-	# 상태 표시를 붙여 본 새싹
-	var statuses := ["gel", "cold", "heat", "shock"]
-	for i in statuses.size():
-		var e := _enemy("sprout", Vector2(980 + i * 70, 560), 2.2)
-		e.status[statuses[i]] = 5.0
-		e.queue_redraw()
+	# 3줄: 위험 지대
+	if stage_id == "freezer":
+		_hazard(Hazard.frost(Vector2(150, 560), 55.0, 1.2, 10.0, "냉기 폭발"), 0.85)
+		_hazard(Hazard.frost(Vector2(350, 560), 55.0, 1.2, 10.0, "냉기 폭발"), 1.32)
+		_hazard(Hazard.ice(Vector2(600, 560), 105.0, 16.0), 3.0)
+		_hazard(Hazard.sweep(Vector2(900, 600), 2, 0.4, 0.8, 1.2, 3.4, 10.0, "냉기 빔"), 2.0)
+		_hazard(Hazard.sweep(Vector2(1100, 640), 1, 3.6, 0.8, 1.2, 3.4, 10.0, "냉기 빔"), 0.6)
+	else:
+		_hazard(Hazard.thorns(Vector2(150, 560), 55.0, 1.2, 10.0, "가시 덩굴"), 0.85)
+		_hazard(Hazard.thorns(Vector2(350, 560), 55.0, 1.2, 10.0, "가시 덩굴"), 1.32)
+		_hazard(Hazard.spore(Vector2(560, 560), 60.0, 4.5, 4.0, "버섯 포자"), 1.5)
+		_hazard(Hazard.puddle(Vector2(800, 560), 85.0, 12.0), 3.0)
+		# 상태 표시를 붙여 본 새싹
+		var statuses := ["gel", "cold", "heat", "shock"]
+		for i in statuses.size():
+			var e := _enemy("sprout", Vector2(980 + i * 70, 560), 2.2)
+			e.status[statuses[i]] = 5.0
+			e.queue_redraw()
 
 
 func _enemy(kind: String, pos: Vector2, sc: float) -> Enemy:

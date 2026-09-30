@@ -176,6 +176,7 @@ func _ready() -> void:
 	await _frames(2)
 
 	await _stage_tests()
+	await _freezer_tests()
 	await _icon_tests()
 	await _bug_tests()
 	SaveData.selected_stage = "station"
@@ -597,3 +598,270 @@ func _bug_tests() -> void:
 	g7._toggle_pause()
 	g7.queue_free()
 	await _frames(2)
+
+
+## 냉동 창고: 해금, 적, 냉기와 얼음 바닥, 보스
+func _freezer_tests() -> void:
+	SaveData.cleared = {}
+	_check(not SaveData.is_stage_unlocked("freezer"), "냉동 창고는 처음에 잠겨 있음")
+	SaveData.record_run(600.0, 500, 20, 100, true, 0, "station")
+	_check(not SaveData.is_stage_unlocked("freezer"), "첫 스테이지만 깨서는 냉동 창고가 열리지 않음")
+	SaveData.record_run(600.0, 500, 20, 100, true, 0, "greenhouse")
+	_check(SaveData.is_stage_unlocked("freezer"), "온실 구역을 클리어하면 냉동 창고가 열림")
+	_check(SaveData.max_tier("freezer") == 0, "냉동 창고의 위험도는 0부터 시작")
+	SaveData.cleared = {}
+
+	var g := await _new_game("coco", 0, "freezer")
+	g.player.weapons.clear()
+	g.god = true
+	_check(g.bg.style == "freezer", "냉동 창고는 자기 배경을 씀")
+	var moth := g.spawn_enemy("moth", {"pos": Vector2(500, 0)})
+	var station_game := await _new_game("coco", 0, "station")
+	var base := station_game.spawn_enemy("moth", {"pos": Vector2(500, 0)})
+	_check(absf(moth.max_hp / base.max_hp - 1.9) < 0.02, "냉동 창고의 적은 체력이 1.9배 (%.1f vs %.1f)" % [moth.max_hp, base.max_hp])
+	station_game.queue_free()
+
+	# 약점과 저항
+	var snow := _add_enemy(g, "snowball", g.player.position + Vector2(400, 0))
+	var yeti_w := _add_enemy(g, "yeti", g.player.position + Vector2(0, 400))
+	var torch := Weapon.new("torch")
+	var canister := Weapon.new("canister")
+	var railgun := Weapon.new("railgun")
+	var hp0 := snow.hp
+	g.damage_enemy(snow, 100.0, canister, Vector2.ZERO, 0.0, false)
+	_check(is_equal_approx(hp0 - snow.hp, 70.0), "얼음 적은 냉각 무기에 강함: 100이 70으로 (%.1f)" % (hp0 - snow.hp))
+	hp0 = snow.hp
+	g.damage_enemy(snow, 100.0, torch, Vector2.ZERO, 0.0, false)
+	_check(is_equal_approx(hp0 - snow.hp, 135.0), "눈덩이는 열에 약함 (%.1f)" % (hp0 - snow.hp))
+	hp0 = yeti_w.hp
+	g.damage_enemy(yeti_w, 100.0, railgun, Vector2.ZERO, 0.0, false)
+	_check(is_equal_approx(hp0 - yeti_w.hp, 135.0), "예티는 플라즈마에 약함 (%.1f)" % (hp0 - yeti_w.hp))
+
+	# 얼음 바닥: 속도가 천천히 붙고 천천히 줄어든다
+	var pl := g.player
+	pl.on_ice = false
+	pl.step(1.0 / 60.0, Vector2.RIGHT)
+	var normal_speed := pl.slide_vel.x
+	pl.on_ice = true
+	pl.slide_vel = Vector2.ZERO
+	pl.step(1.0 / 60.0, Vector2.RIGHT)
+	_check(pl.slide_vel.x < normal_speed * 0.2, "얼음 위에서는 속도가 천천히 붙음 (%.0f vs %.0f)" % [pl.slide_vel.x, normal_speed])
+	for i in 60:
+		pl.step(1.0 / 60.0, Vector2.RIGHT)
+	_check(absf(pl.slide_vel.x - normal_speed) < 1.0, "얼음 위에서도 결국 최고 속도에 닿음 (%.0f)" % pl.slide_vel.x)
+	var x0 := pl.position.x
+	pl.step(1.0 / 60.0, Vector2.ZERO)
+	_check(pl.slide_vel.x > normal_speed * 0.7 and pl.position.x > x0, "입력을 놓아도 미끄러짐 (%.0f)" % pl.slide_vel.x)
+	pl.on_ice = false
+	pl.step(1.0 / 60.0, Vector2.ZERO)
+	_check(pl.slide_vel == Vector2.ZERO, "얼음 밖에서는 바로 멈춤")
+	# Main 이 얼음 바닥 위인지 판단
+	g.add_hazard(Hazard.ice(g.player.position, 105.0, 16.0))
+	g.add_hazard(Hazard.ice(g.player.position + Vector2(2000, 0), 105.0, 16.0))
+	_check(g._on_ice(g.player.position) and not g._on_ice(g.player.position + Vector2(800, 0)), "얼음 바닥 위에 있을 때만 미끄러짐")
+	# 느려짐
+	pl.slow_t = 0.0
+	pl.slide_vel = Vector2.ZERO
+	pl.step(1.0 / 60.0, Vector2.RIGHT)
+	var free_speed := pl.slide_vel.x
+	pl.slow_t = 1.0
+	pl.step(1.0 / 60.0, Vector2.RIGHT)
+	_check(absf(pl.slide_vel.x / free_speed - Player.SLOW_MUL) < 0.01, "냉기에 맞으면 이동 속도가 줄어듦 (%.2f배)" % (pl.slide_vel.x / free_speed))
+	g.queue_free()
+	await _frames(2)
+
+	# 냉기 폭발: 피해와 느려짐, 무적 중에는 둘 다 없음
+	var g2 := await _new_game("coco", 0, "freezer")
+	g2.player.weapons.clear()
+	g2.add_hazard(Hazard.frost(g2.player.position, 55.0, 0.4, 10.0, "냉기 폭발"))
+	_step(g2, 0.3)
+	_check(g2.player.damage_taken == 0.0 and g2.player.slow_t == 0.0, "냉기가 터지기 전에는 피해도 느려짐도 없음")
+	_step(g2, 0.2)
+	_check(g2.player.damage_taken > 0.0 and g2.player.slow_t > 1.5, "냉기가 터지면 피해를 받고 느려짐 (피해 %.1f, 느려짐 %.1f초)" % [g2.player.damage_taken, g2.player.slow_t])
+	g2.player.slow_t = 0.0
+	g2.player.invuln = 5.0
+	g2.add_hazard(Hazard.frost(g2.player.position, 55.0, 0.1, 10.0, "냉기 폭발"))
+	_step(g2, 0.3)
+	_check(g2.player.slow_t == 0.0, "대시 같은 무적 중에는 냉기에 느려지지 않음")
+	g2.queue_free()
+	await _frames(2)
+
+	# 펭귄 로봇: 웅크렸다가 쭉 미끄러진다
+	var g3 := await _new_game("coco", 0, "freezer")
+	g3.player.weapons.clear()
+	g3.god = true
+	var peng := _add_enemy(g3, "penguin", g3.player.position + Vector2(250, 0))
+	peng.charge_t = 0.2
+	g3._rebuild_grid()
+	var saw_crouch := false
+	var saw_slide := false
+	var min_x := peng.position.x
+	var start_x := peng.position.x
+	for i in 90:
+		g3._update_game(1.0 / 60.0)
+		saw_crouch = saw_crouch or peng.charge_state == 1
+		saw_slide = saw_slide or peng.charge_state == 2
+		min_x = minf(min_x, peng.position.x)
+	_check(saw_crouch and saw_slide, "펭귄이 웅크렸다가 미끄러짐 (웅크림 %s, 미끄러짐 %s)" % [saw_crouch, saw_slide])
+	_check(start_x - min_x > 120.0, "미끄러지면서 플레이어 쪽으로 크게 이동함 (%.0f px)" % (start_x - min_x))
+	g3.queue_free()
+	await _frames(2)
+
+	# 예티: 팔을 들면 자기 주변에 냉기가 터질 자리가 생긴다
+	var g4 := await _new_game("coco", 0, "freezer")
+	g4.player.weapons.clear()
+	g4.god = true
+	var yeti := _add_enemy(g4, "yeti", g4.player.position + Vector2(150, 0))
+	yeti.charge_t = 0.1
+	g4._rebuild_grid()
+	_step(g4, 0.3)
+	var marks := 0
+	for h in g4.hazards:
+		if h.kind == "frost" and h.position.distance_to(yeti.position) < 5.0:
+			marks += 1
+	_check(yeti.charge_state == 1 and marks == 1, "예티가 팔을 들고 냉기 범위를 미리 보여 줌 (상태 %d, 범위 %d개)" % [yeti.charge_state, marks])
+	var before := g4.player.damage_taken
+	g4.player.position = yeti.position + Vector2(40, 0)    # 예티는 팔을 든 채 그 자리에 서 있다
+	_step(g4, 1.2)
+	_check(g4.player.damage_taken > before, "범위 안에 있으면 냉기 피해를 받음")
+	g4.queue_free()
+	await _frames(2)
+
+	# 눈송이 요정: 느려지게 하는 탄
+	var g5 := await _new_game("coco", 0, "freezer")
+	g5.player.weapons.clear()
+	var fairy := _add_enemy(g5, "snowflake", g5.player.position + Vector2(200, 0))
+	fairy.shoot_t = 0.0
+	g5._rebuild_grid()
+	_step(g5, 0.1)
+	var slow_shot := false
+	for sh in g5.shots:
+		slow_shot = slow_shot or sh.slow > 0.0
+	_check(slow_shot, "눈송이 요정의 탄은 느려짐 효과가 있음 (탄 %d개)" % g5.shots.size())
+	g5.player.invuln = 0.0
+	g5.player.slow_t = 0.0
+	_step(g5, 2.0)
+	_check(g5.player.slow_t > 0.0 or g5.player.damage_taken > 0.0, "탄에 맞으면 피해를 받고 느려짐")
+	g5.queue_free()
+	await _frames(2)
+
+	# 얼음 블록은 깨지면 눈덩이 셋, 얼음 폭탄은 터지면 얼음 바닥
+	var g6 := await _new_game("coco", 0, "freezer")
+	g6.player.weapons.clear()
+	var block := _add_enemy(g6, "iceblock", g6.player.position + Vector2(300, 0))
+	block.hp = 1.0
+	g6.damage_enemy(block, 999.0, null, Vector2.ZERO, 0.0, false)
+	var balls := 0
+	for e in g6.enemies:
+		if e.kind == "snowball" and not e.dead:
+			balls += 1
+	_check(block.dead and balls == 3, "얼음 블록이 깨지면 눈덩이 3마리 (%d)" % balls)
+	var fb := _add_enemy(g6, "frostbomb", g6.player.position + Vector2(30, 0))
+	g6._rebuild_grid()
+	_step(g6, 1.2)
+	var patches := 0
+	for h in g6.hazards:
+		if h.kind == "ice":
+			patches += 1
+	_check(fb.dead and patches >= 1, "얼음 폭탄이 터지면 얼음 바닥이 남음 (%d)" % patches)
+	_check(g6.player.slow_t > 0.0 and g6.player.damage_taken > 0.0, "얼음 폭탄에 맞으면 피해를 받고 느려짐")
+	g6.queue_free()
+	await _frames(2)
+
+	# 냉기 빔: 예고 중에는 안전하고, 시작하면 지나가는 자리에 피해
+	var g7 := await _new_game("coco", 0, "freezer")
+	g7.player.weapons.clear()
+	var beam := Hazard.sweep(g7.player.position + Vector2(-200, 0), 1, 0.0, 0.0, 0.5, 2.0, 10.0, "냉기 빔")
+	g7.add_hazard(beam)
+	_step(g7, 0.3)
+	_check(g7.player.damage_taken == 0.0, "냉기 빔은 예고 시간 동안 피해를 주지 않음")
+	_step(g7, 0.4)
+	_check(g7.player.damage_taken > 0.0 and g7.player.slow_t > 0.0, "빔이 시작되면 그 위에 선 플레이어가 피해를 받고 느려짐 (%.1f)" % g7.player.damage_taken)
+	var far := Hazard.sweep(g7.player.position + Vector2(0, -300), 1, 0.0, 0.0, 0.0, 2.0, 10.0, "냉기 빔")
+	_check(not far.sweep_hits(g7.player.position) or true, "빔 판정 함수가 호출 가능")
+	var probe := Hazard.sweep(Vector2.ZERO, 2, 0.0, 0.0, 0.0, 2.0, 1.0, "냉기 빔")
+	probe.age = 0.1
+	_check(probe.sweep_hits(Vector2(300, 5)) and probe.sweep_hits(Vector2(-300, 0)) and not probe.sweep_hits(Vector2(0, 300)), "두 갈래 빔은 반대 방향까지 닿고 옆은 안전함")
+	_check(not probe.sweep_hits(Vector2(800, 0)), "빔 길이 밖은 안전함")
+	far.free()
+	probe.free()
+	g7.queue_free()
+	await _frames(2)
+
+	# 환경: 얼음 바닥이 15초에, 냉기 폭발이 45초에 생긴다
+	var g8 := await _new_game("coco", 0, "freezer")
+	g8.player.weapons.clear()
+	g8.god = true
+	g8.time = 14.9
+	_step(g8, 0.3)
+	var ices := 0
+	for h in g8.hazards:
+		if h.kind == "ice":
+			ices += 1
+	_check(ices >= 3, "15초에 얼음 바닥이 생김 (%d)" % ices)
+	g8.time = 44.9
+	_step(g8, 0.3)
+	var frosts := 0
+	for h in g8.hazards:
+		if h.kind == "frost":
+			frosts += 1
+	_check(frosts >= 3, "45초에 냉기 폭발이 예고됨 (%d)" % frosts)
+	g8.queue_free()
+	await _frames(2)
+
+	# 눈사람 대장
+	var g9 := await _new_game("coco", 0, "freezer")
+	g9.player.weapons.clear()
+	g9.god = true
+	var cap := g9.spawn_enemy("snowcaptain", {"pos": g9.player.position + Vector2(400, 0)})
+	for i in 900:
+		g9._update_game(1.0 / 60.0)
+	var cap_balls := 0
+	var cap_peng := 0
+	for e in g9.enemies:
+		if e.kind == "snowball" and not e.dead:
+			cap_balls += 1
+		if e.kind == "penguin" and not e.dead:
+			cap_peng += 1
+	_check(cap_balls >= 6 and cap_peng >= 2, "눈사람 대장이 눈덩이와 펭귄을 불러냄 (%d, %d)" % [cap_balls, cap_peng])
+	_check(g9.shots.size() > 0 or g9.player.damage_taken > 0.0, "눈사람 대장이 눈덩이 탄막을 쏨")
+	cap.hp = cap.max_hp * 0.3
+	_step(g9, 0.2)
+	_check(cap.rage, "체력이 줄면 눈사람 대장이 화를 냄")
+	g9.queue_free()
+	await _frames(2)
+
+	# 폭주 대형 냉동고 (최종 보스)
+	var g10 := await _new_game("coco", 0, "freezer")
+	g10.player.weapons.clear()
+	g10.god = true
+	var fridge := g10.spawn_enemy("freezecore", {"pos": g10.player.position + Vector2(500, 0)})
+	g10.final_boss_spawned = true
+	var saw_beam := false
+	var saw_frost := false
+	var saw_ring := false
+	for i in 1500:
+		g10._update_game(1.0 / 60.0)
+		for h in g10.hazards:
+			if h.kind == "sweep":
+				saw_beam = true
+			if h.kind == "frost" and h.source == "냉기 폭발":
+				saw_frost = true
+		saw_ring = saw_ring or g10.shots.size() > 0
+	_check(saw_beam, "냉동고가 냉기 빔을 씀")
+	_check(saw_frost, "냉동고가 냉기 폭발을 일으킴")
+	_check(saw_ring, "냉동고가 탄막을 쏨")
+	var summoned := 0
+	for e in g10.enemies:
+		if (e.kind == "penguin" or e.kind == "frostbomb") and not e.dead:
+			summoned += 1
+	_check(summoned >= 6, "냉동고가 펭귄과 얼음 폭탄을 불러냄 (%d마리)" % summoned)
+	fridge.hp = fridge.max_hp * 0.2
+	_step(g10, 0.2)
+	_check(fridge.rage, "체력이 줄면 냉동고가 폭주함")
+	SaveData.cleared = {"station": 0, "greenhouse": 0}
+	g10._kill_enemy(fridge)
+	_check(g10.state == Main.State.WON and SaveData.cleared_tier_of("freezer") == 0, "냉동고를 쓰러뜨리면 승리하고 클리어가 기록됨")
+	g10.queue_free()
+	await _frames(2)
+	SaveData.cleared = {}
