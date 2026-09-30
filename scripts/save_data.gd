@@ -2,6 +2,11 @@ extends Node
 ## 저장 데이터 (자동 로드 싱글톤). 골드, 강화 단계, 해금 캐릭터, 최고 기록, 설정을 파일에 저장한다.
 
 const PATH := "user://save.json"
+const BACKUP_SUFFIX := ".bak"
+const TEMP_SUFFIX := ".tmp"
+
+# 테스트에서 다른 파일로 바꿔 쓸 수 있다
+var path := PATH
 
 var gold := 0
 var upgrades: Dictionary = {}
@@ -51,15 +56,23 @@ func _ready() -> void:
 
 
 func load_data() -> void:
-	if not persist or not FileAccess.file_exists(PATH):
+	if not persist:
 		return
-	var f := FileAccess.open(PATH, FileAccess.READ)
+	# 저장 파일이 깨져 있으면 직전에 남겨 둔 백업에서 불러온다
+	for candidate: String in [path, path + BACKUP_SUFFIX]:
+		var parsed: Variant = _read_json(candidate)
+		if parsed is Dictionary:
+			apply_dict(parsed)
+			return
+
+
+func _read_json(file_path: String) -> Variant:
+	if not FileAccess.file_exists(file_path):
+		return null
+	var f := FileAccess.open(file_path, FileAccess.READ)
 	if f == null:
-		return
-	var parsed: Variant = JSON.parse_string(f.get_as_text())
-	if not (parsed is Dictionary):
-		return
-	apply_dict(parsed)
+		return null
+	return JSON.parse_string(f.get_as_text())
 
 
 ## 저장 파일에서 읽은 내용을 적용한다 (옛 버전의 저장 파일도 여기서 새 형식으로 바꾼다)
@@ -101,17 +114,24 @@ func apply_dict(d: Dictionary) -> void:
 			settings[k] = s[k]
 
 
+## 임시 파일에 먼저 쓴 다음 이름을 바꾼다. 쓰는 도중에 꺼져도 원래 파일은 온전하고, 이전 파일은 백업으로 남는다.
 func save() -> void:
 	if not persist:
 		return
-	var f := FileAccess.open(PATH, FileAccess.WRITE)
-	if f == null:
-		return
-	f.store_string(JSON.stringify({
+	var text := JSON.stringify({
 		"gold": gold, "upgrades": upgrades, "unlocked": unlocked, "best": best,
 		"wins": wins, "runs": runs, "selected_char": selected_char, "settings": settings,
 		"cleared": cleared, "selected_stage": selected_stage, "risk_tier": risk_tier,
-	}, "\t"))
+	}, "\t")
+	var tmp := path + TEMP_SUFFIX
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(text)
+	f.close()
+	if FileAccess.file_exists(path):
+		DirAccess.copy_absolute(path, path + BACKUP_SUFFIX)
+	DirAccess.rename_absolute(tmp, path)
 
 
 func apply_window() -> void:

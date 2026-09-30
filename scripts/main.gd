@@ -116,6 +116,10 @@ func _ready() -> void:
 	Sfx.play_music("game")
 	if "--show-pause" in OS.get_cmdline_user_args():
 		_toggle_pause.call_deferred()    # 테스트 전용: 일시정지 화면으로 시작
+	if "--show-levelup" in OS.get_cmdline_user_args():
+		_open_levelup.call_deferred()    # 테스트 전용: 레벨업 화면으로 시작
+	if "--show-chest" in OS.get_cmdline_user_args():
+		_open_chest.call_deferred(2)     # 테스트 전용: 보급 상자 화면으로 시작
 
 
 func _parse_debug_args() -> void:
@@ -170,6 +174,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				SaveData.settings["fullscreen"] = not bool(SaveData.settings.fullscreen)
 				SaveData.save()
 				SaveData.apply_window()
+				hud.refresh_settings()
 	elif event is InputEventJoypadButton and event.pressed:
 		# 게임패드: 시작 버튼으로 일시정지, B 버튼으로 일시정지 해제
 		if event.button_index == JOY_BUTTON_START:
@@ -558,7 +563,7 @@ func _update_enemies(delta: float) -> void:
 				vel = Vector2(-dir.y, dir.x) * e.speed * 0.4
 			if e.stun <= 0.0:
 				e.shoot_t -= delta
-			if e.shoot_t <= 0.0 and dist < 540.0:
+			if e.shoot_t <= 0.0 and dist < 540.0 and e.stun <= 0.0:
 				e.shoot_t = 3.2
 				_enemy_fire(e, dir)
 		elif e.move != "":
@@ -740,8 +745,9 @@ func _boss_ai(e: Enemy, delta: float, dir: Vector2) -> void:
 				e.skill3_t = 11.0 if rage else 14.0
 				for i in 6:
 					spawn_enemy("sprout", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 90.0})
-				for i in (4 if rage else 3):
-					spawn_enemy("bulb", {"pos": e.position + Vector2.from_angle(TAU * (float(i) + 0.5) / 3.0) * 110.0})
+				var bulbs := 4 if rage else 3
+				for i in bulbs:
+					spawn_enemy("bulb", {"pos": e.position + Vector2.from_angle(TAU * (float(i) + 0.5) / float(bulbs)) * 110.0})
 
 
 ## 원거리 적이 탄을 쏜다. 해바라기는 부채꼴로 세 발, 그 밖에는 한 발
@@ -1287,9 +1293,21 @@ func _prune_hits(p: Projectile) -> void:
 # ─────────────────────────────────────────────
 func spawn_gem(pos: Vector2, value: int) -> void:
 	if gems.size() >= MAX_GEMS:
-		# 너무 많으면 기존 보석에 합쳐서 성능 유지
-		gems[randi() % gems.size()].add_value(value)
-		return
+		# 너무 많으면 기존 보석에 합쳐서 성능 유지. 방금 주운 보석에 합치면 경험치가 사라지므로 남아 있는 보석을 고른다
+		var target: Gem = null
+		for _i in 8:
+			var cand: Gem = gems[randi() % gems.size()]
+			if not cand.dead:
+				target = cand
+				break
+		if target == null:
+			for cand in gems:
+				if not cand.dead:
+					target = cand
+					break
+		if target != null:
+			target.add_value(value)
+			return
 	var gem := Gem.new()
 	gem.position = pos + Vector2(randf_range(-6, 6), randf_range(-6, 6))
 	gem.value = value
@@ -1412,8 +1430,8 @@ func _update_pickups() -> void:
 			pk.visible = false
 			_collect(pk.kind)
 	for c in chests:
-		if c.dead:
-			continue
+		if c.dead or state != State.PLAYING:
+			continue    # 레벨업 창이 열려 있으면 상자는 그 창을 닫은 뒤에 연다
 		if c.position.distance_squared_to(ppos) < 30.0 * 30.0:
 			c.dead = true
 			c.visible = false
@@ -1602,17 +1620,17 @@ func _open_chest(tier: int) -> void:
 		if w.can_evolve(player):
 			var from_name: String = T.t(str(w.def.name))
 			var nw := _evolve_weapon(w)
-			rewards.append({"evo": true, "title": "%s → %s" % [from_name, T.t(str(nw.def.name))], "desc": T.t(str(nw.def.desc))})
+			rewards.append({"evo": true, "id": nw.id, "title": "%s → %s" % [from_name, T.t(str(nw.def.name))], "desc": T.t(str(nw.def.desc))})
 	# 남은 칸은 무작위 강화
 	while rewards.size() < tier:
 		var pool := _upgrade_pool()
 		if pool.is_empty():
 			player.heal(player.max_hp * 0.3)
-			rewards.append({"evo": false, "title": T.t("배터리"), "desc": T.t("체력을 30% 회복했습니다.")})
+			rewards.append({"evo": false, "id": "heal", "title": T.t("배터리"), "desc": T.t("체력을 30% 회복했습니다.")})
 			break
 		var c: Dictionary = pool[randi() % pool.size()]
 		_apply_choice(c)
-		rewards.append({"evo": false, "title": c.title, "desc": c.desc})
+		rewards.append({"evo": false, "id": str(c.get("id", "")), "title": c.title, "desc": c.desc})
 	_refresh_inventory()
 	var evolved := false
 	for r: Dictionary in rewards:
@@ -1633,14 +1651,34 @@ func _on_chest_closed() -> void:
 		state = State.PLAYING
 
 
+## 화면 아래 아이콘 칸에 보여 줄 무기와 아이템 정보
 func _refresh_inventory() -> void:
-	var ws: PackedStringArray = []
+	var ws: Array = []
 	for w in player.weapons:
-		ws.append("%s %d" % [T.t(str(w.def.name)), w.level] if not w.is_evolved() else "★%s" % T.t(str(w.def.name)))
-	var ps: PackedStringArray = []
+		var detail := T.t(str(w.def.desc))
+		var ev: Variant = w.def.get("evolve")
+		if w.is_evolved():
+			detail += "\n" + T.t("진화한 무기입니다.")
+		elif ev != null:
+			var pname := T.t(str(GameData.PASSIVES[ev.passive].name))
+			detail += "\n" + (T.t("진화 조건을 채웠습니다! 보급 상자를 열면 진화합니다.") if w.can_evolve(player) else T.f("진화 조건: 최대 레벨 + %s", [pname]))
+		ws.append({
+			"id": w.id, "level": w.level, "max": w.max_level(), "evolved": w.is_evolved(),
+			"ready": w.can_evolve(player),
+			"name": "%s%s  Lv.%d" % [T.t(str(w.def.name)), _elem_tag(w.id), w.level] if not w.is_evolved() else "★ " + T.t(str(w.def.name)),
+			"detail": detail,
+		})
+	var ps: Array = []
 	for id: String in player.passives:
-		ps.append("%s %d" % [T.t(str(GameData.PASSIVES[id].name)), player.passives[id]])
-	hud.set_inventory(T.f("무기  %s\n아이템  %s", [" · ".join(ws), " · ".join(ps) if not ps.is_empty() else "-"]))
+		var d: Dictionary = GameData.PASSIVES[id]
+		var detail := T.t(str(d.desc))
+		for wid: String in GameData.WEAPONS:
+			var wev: Variant = GameData.WEAPONS[wid].get("evolve")
+			if wev != null and wev.passive == id:
+				detail += "\n" + T.f("짝이 되는 무기: %s", [T.t(str(GameData.WEAPONS[wid].name))])
+		ps.append({"id": id, "level": int(player.passives[id]), "max": int(d.max), "evolved": false, "ready": false,
+			"name": "%s  Lv.%d" % [T.t(str(d.name)), int(player.passives[id])], "detail": detail})
+	hud.set_items({"weapons": ws, "passives": ps})
 
 
 # ─────────────────────────────────────────────
@@ -1665,15 +1703,6 @@ func _finish(won: bool) -> void:
 func _status_text() -> String:
 	var lines: PackedStringArray = []
 	lines.append(T.f("생존 시간  %s    처치  %d    레벨  %d    골드  %d", [Util.fmt_time(time), kills, player.level, gold]))
-	lines.append("")
-	lines.append(T.t("무기"))
-	for w in player.weapons:
-		lines.append("  %s  Lv.%d" % [T.t(str(w.def.name)), w.level] if not w.is_evolved() else T.f("  ★ %s  (진화)", [T.t(str(w.def.name))]))
-	lines.append(T.t("아이템"))
-	if player.passives.is_empty():
-		lines.append(T.t("  (없음)"))
-	for id: String in player.passives:
-		lines.append("  %s  Lv.%d" % [T.t(str(GameData.PASSIVES[id].name)), player.passives[id]])
 	return "\n".join(lines)
 
 

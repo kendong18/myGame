@@ -176,6 +176,8 @@ func _ready() -> void:
 	await _frames(2)
 
 	await _stage_tests()
+	await _icon_tests()
+	await _bug_tests()
 	SaveData.selected_stage = "station"
 
 	print("\n결과: 실패 %d개" % _fails)
@@ -419,3 +421,179 @@ func _stage_tests() -> void:
 	g7.queue_free()
 	await _frames(2)
 	SaveData.cleared = {}
+
+
+## 무기와 아이템 아이콘 칸
+func _icon_tests() -> void:
+	var missing: PackedStringArray = []
+	for id: String in GameData.WEAPONS:
+		if not ItemIcons.has_icon(id):
+			missing.append(id)
+	for id: String in GameData.PASSIVES:
+		if not ItemIcons.has_icon(id):
+			missing.append(id)
+	_check(missing.is_empty(), "모든 무기와 아이템에 아이콘이 있음 (빠진 것: %s)" % ", ".join(missing))
+	_check(ItemIcons.base_id("plasma_torch") == "torch" and ItemIcons.base_id("drone_fleet") == "drone" and ItemIcons.base_id("torch") == "torch", "진화한 무기의 아이콘은 원래 무기를 따라감")
+
+	var g := await _new_game("coco")
+	g.player.weapons.clear()
+	var tw := g.player.add_weapon("torch")
+	tw.level = tw.max_level()
+	tw.recompute()
+	g.player.add_weapon("gelgun")
+	g._refresh_inventory()
+	var items: Dictionary = g.hud._items
+	_check(items.weapons.size() == 2 and items.passives.size() == 0, "아이콘 칸에 가진 무기가 들어감 (%d개)" % items.weapons.size())
+	_check(not bool(items.weapons[0].ready), "짝 아이템이 없으면 진화 표시가 없음")
+	g.player.passives["tank"] = 1
+	g.player.recalc_stats()
+	g._refresh_inventory()
+	items = g.hud._items
+	_check(bool(items.weapons[0].ready) and not bool(items.weapons[1].ready), "최대 레벨과 짝 아이템이 있으면 그 무기만 진화 표시")
+	_check(items.passives.size() == 1 and str(items.passives[0].detail).find("토치") >= 0, "아이템 설명에 짝이 되는 무기가 나옴")
+	g._toggle_pause()
+	_check(g.hud._pause_weapon_row.get_child_count() == GameData.MAX_WEAPONS, "일시정지 화면에 무기 %d칸" % GameData.MAX_WEAPONS)
+	var slot: ItemSlot = g.hud._pause_weapon_row.get_child(0)
+	_check(slot.focus_mode == Control.FOCUS_ALL, "일시정지 화면의 칸은 키보드와 게임패드로 고를 수 있음")
+	slot.picked.emit(slot)
+	_check(g.hud._pause_detail.text.find("토치") >= 0 and g.hud._pause_detail.text.find("진화") >= 0, "칸을 고르면 이름과 진화 안내가 나옴")
+	g._toggle_pause()
+	g.queue_free()
+	await _frames(2)
+
+
+## 코드 리뷰(docs/bug-report-2026-09-30.md)에서 나온 버그의 재발 방지 검사
+func _bug_tests() -> void:
+	# 2번: 세이브는 임시 파일을 거쳐 쓰이고, 깨지면 백업에서 불러온다
+	var test_path := "user://test_save_tmp.json"
+	var saved_path := SaveData.path
+	var saved_persist := SaveData.persist
+	var saved_gold := SaveData.gold
+	SaveData.persist = true
+	SaveData.path = test_path
+	SaveData.gold = 111
+	SaveData.save()
+	SaveData.gold = 222
+	SaveData.save()
+	_check(FileAccess.file_exists(test_path) and not FileAccess.file_exists(test_path + SaveData.TEMP_SUFFIX), "저장하면 파일이 만들어지고 임시 파일은 남지 않음")
+	_check(FileAccess.file_exists(test_path + SaveData.BACKUP_SUFFIX), "이전 저장 파일이 백업으로 남음")
+	var f := FileAccess.open(test_path, FileAccess.WRITE)
+	f.store_string("{\"gold\": 5, \"upgr")    # 저장 도중 꺼진 것처럼 반쯤 쓰인 파일
+	f.close()
+	SaveData.gold = 0
+	SaveData.load_data()
+	_check(SaveData.gold == 111, "저장 파일이 깨져 있으면 백업에서 불러옴 (골드 %d, 기대 111)" % SaveData.gold)
+	SaveData.load_data()
+	DirAccess.remove_absolute(test_path)
+	DirAccess.remove_absolute(test_path + SaveData.BACKUP_SUFFIX)
+	SaveData.gold = saved_gold
+	SaveData.path = saved_path
+	SaveData.persist = saved_persist
+
+	# 1번: 레벨업 창이 뜬 직후에는 선택이 들어가지 않는다 (대시 키 오선택)
+	var g := await _new_game("coco")
+	g._open_levelup()
+	g.hud._choice_buttons[0].pressed.emit()
+	_check(g.state == Main.State.LEVELUP, "레벨업 창이 뜬 직후 누른 키는 선택으로 이어지지 않음")
+	g.hud._process(0.4)
+	g.hud._choice_buttons[0].pressed.emit()
+	_check(g.state != Main.State.LEVELUP, "잠깐 지난 뒤에는 선택이 됨")
+	g._open_chest(1)
+	g.hud._chest_button.pressed.emit()
+	_check(g.state == Main.State.CHEST, "보급 상자 창도 뜬 직후에는 닫히지 않음")
+	g.hud._process(0.4)
+	g.hud._chest_button.pressed.emit()
+	_check(g.state == Main.State.PLAYING, "잠깐 지난 뒤에는 상자 창이 닫힘")
+	g.queue_free()
+	await _frames(2)
+
+	# 3번: 레벨업 창과 상자 창이 겹치지 않는다
+	var g3 := await _new_game("coco")
+	g3.spawn_chest(g3.player.position, 1)
+	g3.gain_xp(100000.0)
+	g3._update_pickups()
+	_check(g3.state == Main.State.LEVELUP and not g3.chests[0].dead, "레벨업 창이 열린 프레임에는 상자를 열지 않고 기다림")
+	while g3.state == Main.State.LEVELUP:
+		g3._on_choice_selected(0)
+	g3._update_pickups()
+	_check(g3.state == Main.State.CHEST, "레벨업을 마치면 그 자리의 상자가 열림")
+	g3.queue_free()
+	await _frames(2)
+
+	# 4번: 정지된 원거리 적은 탄을 쏘지 않는다
+	var g4 := await _new_game("coco", 0, "greenhouse")
+	g4.player.weapons.clear()
+	g4.god = true
+	var sun := _add_enemy(g4, "sunflower", g4.player.position + Vector2(300, 0))
+	sun.shoot_t = -5.0
+	sun.stun = 5.0
+	g4._rebuild_grid()
+	_step(g4, 0.3)
+	_check(g4.shots.size() == 0, "정지된 해바라기는 탄을 쏘지 않음 (탄 %d개)" % g4.shots.size())
+	sun.stun = 0.0
+	_step(g4, 0.3)
+	_check(g4.shots.size() > 0, "정지가 풀리면 다시 쏨")
+	g4.queue_free()
+	await _frames(2)
+
+	# 5번: 분노한 온실 나무가 부르는 폭탄 열매 4개가 서로 다른 자리에 나온다
+	var g5 := await _new_game("coco", 0, "greenhouse")
+	g5.player.weapons.clear()
+	g5.god = true
+	var tree := g5.spawn_enemy("greentree", {"pos": g5.player.position + Vector2(600, 0)})
+	tree.hp = tree.max_hp * 0.2
+	tree.skill3_t = 0.01
+	_step(g5, 0.1)
+	var bulbs: Array[Vector2] = []
+	for e in g5.enemies:
+		if e.kind == "bulb":
+			bulbs.append(e.position)
+	var closest := 9999.0
+	for i in bulbs.size():
+		for j in range(i + 1, bulbs.size()):
+			closest = minf(closest, bulbs[i].distance_to(bulbs[j]))
+	_check(bulbs.size() == 4 and closest > 50.0, "폭탄 열매 4개가 겹치지 않고 나옴 (%d개, 가장 가까운 간격 %.0f)" % [bulbs.size(), closest])
+	g5.queue_free()
+	await _frames(2)
+
+	# 6번: 보석이 가득 찼을 때 주운 보석에 경험치가 합쳐져 사라지지 않는다
+	var g6 := await _new_game("coco")
+	for i in Main.MAX_GEMS:
+		g6.spawn_gem(g6.player.position + Vector2(300, 300), 1)
+	for gem in g6.gems:
+		gem.dead = true
+	var alive_gem: Gem = g6.gems[g6.gems.size() - 1]
+	alive_gem.dead = false
+	var before := alive_gem.value
+	g6.spawn_gem(g6.player.position, 5)
+	_check(alive_gem.value == before + 5, "보석이 가득 찼을 때 남아 있는 보석에 합쳐짐 (%d → %d)" % [before, alive_gem.value])
+	g6.queue_free()
+	await _frames(2)
+
+	# 7번: F11 로 바뀐 전체 화면 설정이 일시정지 화면의 칸에도 반영된다
+	var g7 := await _new_game("coco")
+	SaveData.settings["fullscreen"] = true
+	g7.hud.refresh_settings()
+	var toggle: CheckButton = g7.hud._pause_settings._toggles["fullscreen"]
+	_check(toggle.button_pressed, "설정이 바뀌면 일시정지 화면의 전체 화면 칸도 켜짐")
+	SaveData.settings["fullscreen"] = false
+	g7.hud.refresh_settings()
+	_check(not toggle.button_pressed, "다시 바뀌면 칸도 꺼짐")
+
+	# 8번: 슬라이더를 끄는 동안에는 저장하지 않고, 놓을 때 한 번 저장한다
+	SaveData.persist = true
+	SaveData.path = test_path
+	var slider: HSlider = g7.hud._pause_settings._sliders["music"]
+	slider.drag_started.emit()
+	for v in [0.1, 0.2, 0.3, 0.4]:
+		slider.value = v
+	_check(not FileAccess.file_exists(test_path), "슬라이더를 끄는 동안에는 파일을 쓰지 않음")
+	slider.drag_ended.emit(true)
+	_check(FileAccess.file_exists(test_path), "슬라이더를 놓으면 저장됨")
+	DirAccess.remove_absolute(test_path)
+	DirAccess.remove_absolute(test_path + SaveData.BACKUP_SUFFIX)
+	SaveData.path = saved_path
+	SaveData.persist = saved_persist
+	g7._toggle_pause()
+	g7.queue_free()
+	await _frames(2)

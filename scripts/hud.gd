@@ -15,7 +15,17 @@ var _time_label: Label
 var _kill_label: Label
 var _gold_label: Label
 var _hp_label: Label
-var _inv_label: Label
+var _weapon_row: HBoxContainer
+var _passive_row: HBoxContainer
+var _items: Dictionary = {"weapons": [], "passives": []}
+var _pause_weapon_row: HBoxContainer
+var _pause_passive_row: HBoxContainer
+var _pause_detail: Label
+var _choice_icons: Array[ItemSlot] = []
+var _pause_settings: SettingsPanel
+var _input_lock := 0.0    # 창이 뜬 직후 잠깐 선택을 막는다 (대시 키를 누르던 손가락이 선택으로 이어지지 않도록)
+
+const INPUT_LOCK_TIME := 0.35
 var _banner: Label
 var _banner_t := 0.0
 var _dash_bar: ProgressBar
@@ -162,13 +172,8 @@ func _build_top_bar() -> void:
 	_hp_label.offset_top = 28
 	_root.add_child(_hp_label)
 
-	_inv_label = _label("", 14, Color(0.85, 0.83, 0.95))
-	_inv_label.anchor_top = 1.0
-	_inv_label.anchor_bottom = 1.0
-	_inv_label.offset_left = 14
-	_inv_label.offset_top = -56
-	_inv_label.offset_bottom = -8
-	_root.add_child(_inv_label)
+	_weapon_row = _item_row(-104.0)
+	_passive_row = _item_row(-54.0)
 
 	_banner = _label("", 40, Color(1, 0.85, 0.3))
 	_banner.anchor_left = 0.5
@@ -179,6 +184,37 @@ func _build_top_bar() -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
 	_root.add_child(_banner)
+
+
+## 화면 왼쪽 아래에 아이콘 칸을 늘어놓는 줄
+func _item_row(top: float) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	row.anchor_top = 1.0
+	row.anchor_bottom = 1.0
+	row.offset_left = 14
+	row.offset_top = top
+	row.offset_bottom = top + 44.0
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(row)
+	return row
+
+
+## 줄을 비우고 count 칸을 다시 채운다. 남는 칸은 빈 칸으로 보여 준다.
+func _fill_row(row: HBoxContainer, list: Array, count: int, weapon: bool, interactive: bool) -> void:
+	for ch in row.get_children():
+		row.remove_child(ch)
+		ch.queue_free()
+	for i in count:
+		var info: Dictionary = list[i] if i < list.size() else {}
+		var slot := ItemSlot.new().setup(info, weapon, 44.0, interactive)
+		if interactive:
+			slot.picked.connect(_show_detail)
+		row.add_child(slot)
+
+
+func _show_detail(slot: ItemSlot) -> void:
+	_pause_detail.text = "%s\n%s" % [slot.info.get("name", ""), slot.info.get("detail", "")]
 
 
 func _build_dash_bar() -> void:
@@ -268,7 +304,18 @@ func _build_levelup() -> void:
 		b.custom_minimum_size = Vector2(0, 76)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.add_theme_font_size_override("font_size", 19)
-		b.pressed.connect(func() -> void: choice_selected.emit(i))
+		b.pressed.connect(func() -> void:
+			if _input_lock <= 0.0:
+				choice_selected.emit(i))
+		# 아이콘이 들어갈 자리를 왼쪽에 비워 둔다
+		for state: String in ["normal", "hover", "pressed", "focus", "disabled"]:
+			var sb: StyleBox = UiTheme.get_theme().get_stylebox(state, "Button").duplicate()
+			sb.content_margin_left = 84
+			b.add_theme_stylebox_override(state, sb)
+		var icon := ItemSlot.new()
+		icon.position = Vector2(14, 12)
+		b.add_child(icon)
+		_choice_icons.append(icon)
 		box.add_child(b)
 		_choice_buttons.append(b)
 	var hint := _label("클릭 또는 숫자키 1~3으로 선택", 14, Color(0.7, 0.66, 0.85))
@@ -290,7 +337,9 @@ func _build_chest() -> void:
 	_chest_rewards = VBoxContainer.new()
 	_chest_rewards.add_theme_constant_override("separation", 8)
 	box.add_child(_chest_rewards)
-	_chest_button = _button("확인 (Enter)", func() -> void: chest_closed.emit())
+	_chest_button = _button("확인 (Enter)", func() -> void:
+		if _input_lock <= 0.0:
+			chest_closed.emit())
 	box.add_child(_chest_button)
 
 
@@ -302,9 +351,15 @@ func _build_pause() -> void:
 	box.add_child(title)
 	_pause_info = _label("", 17, Color(0.9, 0.88, 1.0))
 	box.add_child(_pause_info)
-	var sp := SettingsPanel.new()
-	sp.compact = true
-	box.add_child(sp)
+	_pause_weapon_row = _pause_row(box, "무기")
+	_pause_passive_row = _pause_row(box, "아이템")
+	_pause_detail = _label("", 15, Color(0.85, 0.95, 0.9))
+	_pause_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_pause_detail.custom_minimum_size = Vector2(500, 62)
+	box.add_child(_pause_detail)
+	_pause_settings = SettingsPanel.new()
+	_pause_settings.compact = true
+	box.add_child(_pause_settings)
 	_resume_button = _button("계속하기 (ESC)", func() -> void: resume_pressed.emit())
 	box.add_child(_resume_button)
 	var row := HBoxContainer.new()
@@ -316,6 +371,19 @@ func _build_pause() -> void:
 	menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(menu)
 	box.add_child(row)
+
+
+func _pause_row(box: VBoxContainer, title: String) -> HBoxContainer:
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 10)
+	var tl := _label(title, 16, Color(1, 0.85, 0.4))
+	tl.custom_minimum_size = Vector2(64, 0)
+	line.add_child(tl)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	line.add_child(row)
+	box.add_child(line)
+	return row
 
 
 func _build_gameover() -> void:
@@ -338,6 +406,7 @@ func _build_gameover() -> void:
 
 
 func _process(delta: float) -> void:
+	_input_lock = maxf(0.0, _input_lock - delta)
 	if _banner_t > 0.0:
 		_banner_t -= delta
 		_banner.modulate.a = clampf(_banner_t / 0.6, 0.0, 1.0)
@@ -380,8 +449,11 @@ func flash_damage(strength: float = 1.0) -> void:
 	_vignette_a = clampf(strength, 0.0, 1.0)
 
 
-func set_inventory(text: String) -> void:
-	_inv_label.text = text
+## 가진 무기와 아이템을 아이콘으로 보여 준다. 각 항목은 {id, level, max, evolved, ready, name, detail}
+func set_items(items: Dictionary) -> void:
+	_items = items
+	_fill_row(_weapon_row, items.weapons, GameData.MAX_WEAPONS, true, false)
+	_fill_row(_passive_row, items.passives, GameData.MAX_PASSIVES, false, false)
 
 
 func set_boss(boss_name: String, ratio: float) -> void:
@@ -408,10 +480,13 @@ func show_levelup(choices: Array) -> void:
 		if i < choices.size():
 			var c: Dictionary = choices[i]
 			b.text = "[%d]  %s\n       %s" % [i + 1, c.title, c.desc]
+			var cid: String = "heal" if str(c.type) == "heal" else str(c.id)
+			_choice_icons[i].setup({"id": cid, "level": 0}, str(c.type).begins_with("weapon"), 52.0)
 			b.visible = true
 		else:
 			b.visible = false
 	_levelup_overlay.visible = true
+	_input_lock = INPUT_LOCK_TIME
 	_choice_buttons[0].grab_focus()
 
 
@@ -428,12 +503,19 @@ func show_chest(rewards: Array) -> void:
 		row.add_theme_stylebox_override("panel", UiTheme.box(
 			Color(0.45, 0.12, 0.35, 0.5) if evo else Color(0.4, 0.3, 0.08, 0.45),
 			Color(1.0, 0.5, 0.85) if evo else Color(0.75, 0.6, 0.2), 8))
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 12)
+		row.add_child(line)
+		if str(r.get("id", "")) != "":
+			line.add_child(ItemSlot.new().setup({"id": r.id, "level": 0, "evolved": evo}, str(r.id) in GameData.WEAPONS, 52.0))
 		var col := VBoxContainer.new()
-		row.add_child(col)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(col)
 		col.add_child(_label((T.t("★ 진화!") + "  " if evo else "") + str(r.title), 20, Color(1, 0.7, 0.92) if evo else Color(1, 0.92, 0.6)))
 		col.add_child(_label(str(r.desc), 15, Color(0.88, 0.86, 0.96)))
 		_chest_rewards.add_child(row)
 	_chest_overlay.visible = true
+	_input_lock = INPUT_LOCK_TIME
 	_chest_button.grab_focus()
 
 
@@ -443,8 +525,16 @@ func hide_chest() -> void:
 
 func show_pause(info: String) -> void:
 	_pause_info.text = info
+	_fill_row(_pause_weapon_row, _items.weapons, GameData.MAX_WEAPONS, true, true)
+	_fill_row(_pause_passive_row, _items.passives, GameData.MAX_PASSIVES, false, true)
+	_pause_detail.text = T.t("아이콘을 선택하면 설명이 나옵니다.")
 	_pause_overlay.visible = true
 	_resume_button.grab_focus()
+
+
+## F11 로 전체 화면을 바꿨을 때 일시정지 화면의 설정 칸도 맞춘다
+func refresh_settings() -> void:
+	_pause_settings.refresh()
 
 
 func hide_pause() -> void:

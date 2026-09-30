@@ -372,4 +372,9 @@ const EN := {
 	"스테이지": "Stage",
 	"앞 스테이지를 클리어하면 다음 스테이지가 열립니다. 스테이지마다 적과 지형이 다르고, 적에게는 약한 속성이 있습니다.": "Clearing a stage unlocks the next one. Each stage has different enemies and terrain, and enemies have elements they are weak to.",
 	"스테이지마다 최종 보스를 처음 쓰러뜨리면 다음 위험도가 열립니다. 높을수록 적이 강해지고 보상이 늘어납니다.": "The first time you defeat a stage's final boss, the next risk level opens. Higher levels mean tougher enemies and bigger rewards.",
+	"아이콘을 선택하면 설명이 나옵니다.": "Select an icon to see its description.",
+	"진화한 무기입니다.": "This weapon has evolved.",
+	"진화 조건을 채웠습니다! 보급 상자를 열면 진화합니다.": "Evolution requirements met! Open a supply crate to evolve it.",
+	"진화 조건: 최대 레벨 + %s": "To evolve: max level + %s",
+	"짝이 되는 무기: %s": "Paired weapon: %s",
 }

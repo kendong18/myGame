@@ -10,10 +10,20 @@ var show_keys_button := false
 var compact := false            # true 면 자주 쓰는 항목만 보여 준다 (일시정지 화면용)
 var show_language := false      # 메뉴에서만 보인다 (게임 중에 바꾸면 게임이 다시 시작되므로)
 var _size_option: OptionButton
+var _toggles: Dictionary = {}    # 설정 이름 -> CheckButton
+var _sliders: Dictionary = {}    # 설정 이름 -> HSlider
+var _save_timer: Timer
+var _dragging := false
 
 
 func _ready() -> void:
 	add_theme_constant_override("separation", 8)
+	# 슬라이더를 움직이는 동안에는 파일을 계속 쓰지 않고, 멈추고 나서 한 번만 저장한다
+	_save_timer = Timer.new()
+	_save_timer.one_shot = true
+	_save_timer.wait_time = 0.6
+	_save_timer.timeout.connect(func() -> void: SaveData.save())
+	add_child(_save_timer)
 	_add_slider("효과음", "sfx")
 	_add_slider("음악", "music")
 	_add_toggle("피해 숫자 표시", "damage_numbers")
@@ -53,11 +63,19 @@ func _add_slider(title: String, key: String) -> void:
 	s.value = float(SaveData.settings[key])
 	s.custom_minimum_size = Vector2(220, 24)
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sliders[key] = s
+	s.drag_started.connect(func() -> void: _dragging = true)
+	s.drag_ended.connect(func(_changed: bool) -> void:
+		_dragging = false
+		_save_timer.stop()
+		SaveData.save()
+		Sfx.play("click"))
 	s.value_changed.connect(func(v: float) -> void:
 		SaveData.settings[key] = v
 		Sfx.apply_settings()
-		SaveData.save()
-		Sfx.play("click"))
+		if not _dragging:
+			_save_timer.start()
+			Sfx.play("click"))
 	row.add_child(s)
 
 
@@ -65,6 +83,7 @@ func _add_toggle(title: String, key: String) -> void:
 	var row := _row(title)
 	var c := CheckButton.new()
 	c.button_pressed = bool(SaveData.settings[key])
+	_toggles[key] = c
 	c.toggled.connect(func(on: bool) -> void:
 		SaveData.settings[key] = on
 		SaveData.save()
@@ -74,6 +93,19 @@ func _add_toggle(title: String, key: String) -> void:
 			_size_option.disabled = on
 		Sfx.play("click"))
 	row.add_child(c)
+
+
+## 다른 곳(F11 등)에서 설정이 바뀌었을 때 칸을 실제 값에 맞춘다
+func refresh() -> void:
+	for key: String in _toggles:
+		(_toggles[key] as CheckButton).set_pressed_no_signal(bool(SaveData.settings[key]))
+	if _size_option != null:
+		_size_option.disabled = bool(SaveData.settings.fullscreen)
+
+
+func _exit_tree() -> void:
+	if _save_timer != null and not _save_timer.is_stopped():
+		SaveData.save()
 
 
 ## 창 크기: 창 모드일 때만 고를 수 있고, 모니터보다 큰 크기는 고를 수 없다
