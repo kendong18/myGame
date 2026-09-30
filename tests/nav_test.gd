@@ -36,9 +36,13 @@ func _ready() -> void:
 
 	print("시작 포커스: %s (기대: 게임 시작)" % _focus_text())
 	await _press("ui_accept")
-	print("확인 후 화면: %s (기대 select), 포커스 %s" % [_menu._current, _focus_text()])
+	print("확인 후 화면: %s (기대 stage), 포커스 %s" % [_menu._current, _focus_text()])
+	await _press("ui_accept")
+	print("스테이지 선택 후 화면: %s (기대 select), 포커스 %s" % [_menu._current, _focus_text()])
 	await _press("ui_cancel")
-	print("취소 후 화면: %s (기대 title)" % _menu._current)
+	print("취소 후 화면: %s (기대 stage)" % _menu._current)
+	await _press("ui_cancel")
+	print("한 번 더 취소 후 화면: %s (기대 title)" % _menu._current)
 
 	# 아래로 이동해서 강화 상점 열기
 	await _press("ui_down")

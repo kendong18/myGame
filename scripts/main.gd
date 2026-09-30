@@ -8,6 +8,8 @@ const CELL := 56.0
 const MAX_GEMS := 250
 const MAX_FX := 120
 const MAX_SHOTS := 250
+const MAX_HAZARDS := 60
+const PUDDLE_SHOCK_MUL := 1.5    # 물웅덩이 위의 적이 전기 무기에 받는 피해 배율
 
 var state: State = State.PLAYING
 var time := 0.0
@@ -34,6 +36,11 @@ var _demo_t := 1.0
 var reward := 0
 var new_record := false
 var _boss_music := false
+var stage: Dictionary = {}
+var stage_id := "station"
+var hazards: Array[Hazard] = []
+var _env_next: Array = []
+var _env_seen: Dictionary = {}
 
 var world: Node2D
 var bg: Background
@@ -66,9 +73,17 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_input()
 
+	stage_id = SaveData.selected_stage
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--stage="):
+			stage_id = a.substr(8)    # 테스트 전용: 스테이지 지정
+	stage = GameData.stage(stage_id)
+	stage_id = str(stage.id)
+
 	world = Node2D.new()
 	add_child(world)
 	bg = Background.new()
+	bg.style = str(stage.bg)
 	world.add_child(bg)
 
 	var char_id := SaveData.selected_char
@@ -94,7 +109,9 @@ func _ready() -> void:
 	risk_tier = SaveData.risk_tier
 	risk = GameData.risk(risk_tier)
 	_parse_debug_args()
+	_init_env()
 	hud.set_risk(risk_tier)
+	hud.show_banner(T.t(str(stage.name)), Color(0.75, 0.95, 0.75))
 	_refresh_inventory()
 	Sfx.play_music("game")
 	if "--show-pause" in OS.get_cmdline_user_args():
@@ -119,7 +136,7 @@ func _parse_debug_args() -> void:
 	for a in args:
 		if a.begins_with("--start-time="):
 			time = float(a.substr(13))
-			while event_idx < GameData.EVENTS.size() and float(GameData.EVENTS[event_idx].time) < time:
+			while event_idx < stage.events.size() and float(stage.events[event_idx].time) < time:
 				event_idx += 1
 		elif a.begins_with("--build="):
 			player.weapons.clear()
@@ -221,11 +238,13 @@ func _update_game(delta: float) -> void:
 			_run_demo()
 	_spawn(delta)
 	_run_events()
+	_run_env()
 	_update_enemies(delta)
 	for w in player.weapons:
 		w.update(delta, self)
 	_update_projectiles(delta)
 	_update_shots(delta)
+	_update_hazards(delta)
 	_update_gems(delta)
 	_update_pickups()
 	_update_props(delta)
@@ -395,23 +414,25 @@ func random_enemy_in_view(mult: float = 1.0) -> Enemy:
 func _spawn(delta: float) -> void:
 	if stress > 0:
 		# 성능 테스트: 정해진 수만큼 적을 계속 채운다
-		var kinds := ["moth", "jelly", "drone", "bubble", "hound", "turret", "cube"]
+		var kinds: Array = stage.enemies
 		var made := 0
 		while enemies.size() < stress and made < 20:
 			spawn_enemy(kinds[randi() % kinds.size()])
 			made += 1
 		return
-	var wave := GameData.wave_for(time)
-	var rate := float(wave.rate) * (0.45 if final_boss_spawned else 1.0) * GameData.SPAWN_MUL * float(risk.count)
+	var wave := GameData.wave_for(time, stage_id)
+	var count_mul := float(risk.count) * float(stage.mul.count)
+	var rate := float(wave.rate) * (0.45 if final_boss_spawned else 1.0) * GameData.SPAWN_MUL * count_mul
 	spawn_acc += rate * delta
 	var types: Array = wave.types
 	while spawn_acc >= 1.0:
 		spawn_acc -= 1.0
-		if enemies.size() < int(float(wave.max) * float(risk.count)):
+		if enemies.size() < int(float(wave.max) * count_mul):
 			var kind: String = types[randi() % types.size()]
-			# 마법사가 너무 많으면 화면이 탄막으로 가득 차므로 동시 마릿수를 제한
-			if kind == "turret" and _count_kind("turret") >= 3 + int(time / 120.0):
-				kind = "drone"
+			# 원거리 적이 너무 많으면 화면이 탄막으로 가득 차므로 동시 마릿수를 제한
+			var swap: String = GameData.ENEMIES[kind].get("swap", "")
+			if swap != "" and _count_kind(kind) >= 3 + int(time / 120.0):
+				kind = swap
 			spawn_enemy(kind)
 	# 초반에도 화면이 너무 한산하지 않도록 최소 적 수 유지
 	if enemies.size() < 6 + int(time / 10.0):
@@ -435,8 +456,8 @@ func _edge_pos() -> Vector2:
 ## opts: pos(Vector2), elite(bool), straight(Vector2)
 func spawn_enemy(kind: String, opts: Dictionary = {}) -> Enemy:
 	var e := Enemy.new()
-	e.setup(kind, (1.0 + time / GameData.HP_TIME_SCALE) * float(risk.hp), opts.get("elite", false))
-	e.damage *= float(risk.damage) * (1.0 + time / GameData.DAMAGE_TIME_SCALE)
+	e.setup(kind, (1.0 + time / GameData.HP_TIME_SCALE) * float(risk.hp) * float(stage.mul.hp), opts.get("elite", false))
+	e.damage *= float(risk.damage) * float(stage.mul.damage) * (1.0 + time / GameData.DAMAGE_TIME_SCALE)
 	e.speed *= float(risk.speed)
 	if e.boss != "":
 		e.max_hp *= float(risk.boss_hp)
@@ -450,8 +471,8 @@ func spawn_enemy(kind: String, opts: Dictionary = {}) -> Enemy:
 
 
 func _run_events() -> void:
-	while event_idx < GameData.EVENTS.size() and time >= float(GameData.EVENTS[event_idx].time):
-		_run_event(GameData.EVENTS[event_idx])
+	while event_idx < stage.events.size() and time >= float(stage.events[event_idx].time):
+		_run_event(stage.events[event_idx])
 		event_idx += 1
 
 
@@ -468,7 +489,7 @@ func _run_event(ev: Dictionary) -> void:
 
 
 func _spawn_elites(count: int) -> void:
-	var types: Array = GameData.wave_for(time).types
+	var types: Array = GameData.wave_for(time, stage_id).types
 	var best: String = types[0]
 	for t: String in types:
 		if float(GameData.ENEMIES[t].hp) > float(GameData.ENEMIES[best].hp):
@@ -503,7 +524,7 @@ func _spawn_stream(kind: String, count: int) -> void:
 
 func _spawn_boss(kind: String) -> void:
 	spawn_enemy(kind)
-	if kind == "core":
+	if GameData.ENEMIES[kind].get("final", false):
 		final_boss_spawned = true
 	hud.show_banner(T.f("보스 등장: %s", [T.t(str(GameData.ENEMIES[kind].name))]), Color(1, 0.3, 0.35))
 	Sfx.play("warning")
@@ -539,12 +560,19 @@ func _update_enemies(delta: float) -> void:
 				e.shoot_t -= delta
 			if e.shoot_t <= 0.0 and dist < 540.0:
 				e.shoot_t = 3.2
-				add_shot(EnemyShot.make(e.position, dir * 150.0, 5.0, Color(0.65, 0.45, 1.0), 6.0, "포탑 봇"))
+				_enemy_fire(e, dir)
+		elif e.move != "":
+			vel = _special_move(e, delta, dir, dist)
 		else:
 			vel = dir * e.speed
+		if e.dead:
+			continue    # 폭탄 열매가 방금 터졌다
 		vel *= e.speed_mult()
 		if e.boss != "":
+			e.use_override = false
 			_boss_ai(e, delta, dir)
+			if e.use_override:
+				vel = e.vel_override
 		vel += e.knock
 
 		# 겹침 방지 (주변 적끼리 살짝 밀어냄). 비용이 커서 적마다 2프레임에 한 번만 계산
@@ -629,6 +657,7 @@ func _boss_ai(e: Enemy, delta: float, dir: Vector2) -> void:
 	var ratio := e.hp / e.max_hp
 	e.skill_t -= delta
 	e.skill2_t -= delta
+	e.skill3_t -= delta
 	match e.boss:
 		"jellyking":
 			var rage := ratio < 0.4
@@ -655,12 +684,241 @@ func _boss_ai(e: Enemy, delta: float, dir: Vector2) -> void:
 				e.skill2_t = 6.0 if rage else 8.0
 				for i in 6:
 					spawn_enemy("bubble", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 90.0})
+		"queenbee":
+			var rage := ratio < 0.4
+			if rage and not e.rage:
+				e.rage = true
+				hud.show_banner("여왕벌이 화났다!", Color(1.0, 0.75, 0.2))
+			# 돌진: 잠시 멈춰 조준선을 보여 준 뒤 그 방향으로 달려든다
+			match e.charge_state:
+				0:
+					e.charge_t -= delta
+					if e.charge_t <= 0.0:
+						e.charge_state = 1
+						e.charge_t = 0.8
+						e.charge_dir = dir
+						add_fx(Fx.beam(e.position, dir.angle(), 560.0, 48.0, Color(1.0, 0.75, 0.2, 0.5), 0.8, true))
+				1:
+					e.use_override = true
+					e.vel_override = Vector2.ZERO
+					e.charge_t -= delta
+					if e.charge_t <= 0.0:
+						e.charge_state = 2
+						e.charge_t = 0.45
+				_:
+					e.use_override = true
+					e.vel_override = e.charge_dir * (540.0 if rage else 470.0)
+					e.charge_t -= delta
+					if e.charge_t <= 0.0:
+						e.charge_state = 0
+						e.charge_t = 3.6 if rage else 5.2
+			if e.skill_t <= 0.0:
+				e.skill_t = 2.6 if rage else 3.6
+				var n := 9 if rage else 7
+				for i in n:
+					var k := (float(i) / float(n - 1) - 0.5) * 1.1
+					add_shot(EnemyShot.make(e.position, dir.rotated(k) * 210.0, 10.0, Color(1.0, 0.8, 0.2), 7.0, "여왕벌"))
+			if e.skill2_t <= 0.0:
+				e.skill2_t = 6.5 if rage else 8.5
+				for i in 6:
+					spawn_enemy("bee", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 70.0})
+		"greentree":
+			var rage := ratio < 0.35
+			if rage and not e.rage:
+				e.rage = true
+				e.speed = 62.0
+				e.queue_redraw()
+				hud.show_banner("온실 나무가 분노한다!", Color(1.0, 0.35, 0.3))
+			if e.skill_t <= 0.0:
+				e.skill_t = 2.6 if rage else 3.4
+				_enemy_ring(e.position, 18 if rage else 12, 150.0, 12.0, e.spin, "폭주 온실 나무", Color(0.6, 0.92, 0.4))
+				e.spin += 0.23
+			if e.skill2_t <= 0.0:
+				e.skill2_t = 5.0 if rage else 7.0
+				_root_strike(8 if rage else 5)
+			if e.skill3_t <= 0.0:
+				e.skill3_t = 11.0 if rage else 14.0
+				for i in 6:
+					spawn_enemy("sprout", {"pos": e.position + Vector2.from_angle(TAU * float(i) / 6.0) * 90.0})
+				for i in (4 if rage else 3):
+					spawn_enemy("bulb", {"pos": e.position + Vector2.from_angle(TAU * (float(i) + 0.5) / 3.0) * 110.0})
 
 
-func _enemy_ring(pos: Vector2, n: int, speed: float, dmg: float, offset: float, src: String) -> void:
+## 원거리 적이 탄을 쏜다. 해바라기는 부채꼴로 세 발, 그 밖에는 한 발
+func _enemy_fire(e: Enemy, dir: Vector2) -> void:
+	if e.pattern == "fan":
+		var src := T.t(str(GameData.ENEMIES[e.kind].name))
+		for k in [-0.3, 0.0, 0.3]:
+			add_shot(EnemyShot.make(e.position, dir.rotated(k) * 170.0, e.damage, Color(1.0, 0.85, 0.25), 6.0, src))
+	else:
+		add_shot(EnemyShot.make(e.position, dir * 150.0, 5.0, Color(0.65, 0.45, 1.0), 6.0, "포탑 봇"))
+
+
+## 스테이지 적의 특수한 움직임. 이동 속도를 돌려주고, 폭탄 열매는 여기서 터지기도 한다.
+func _special_move(e: Enemy, delta: float, dir: Vector2, dist: float) -> Vector2:
+	match e.move:
+		"zigzag":
+			# 꿀벌: 좌우로 흔들리며 다가온다
+			return dir * e.speed + Vector2(-dir.y, dir.x) * sin(time * 7.0 + e.wobble) * e.speed * 0.8
+		"bomber":
+			# 폭탄 열매: 가까이 와서 멈추면 심지가 타고, 잠시 뒤 터진다
+			if e.fuse >= 0.0:
+				if e.stun <= 0.0:
+					e.fuse -= delta
+				e.queue_redraw()
+				if e.fuse < 0.0:
+					_bulb_explode(e)
+				return Vector2.ZERO
+			if dist < 46.0:
+				e.fuse = 0.7
+				e.queue_redraw()
+			return dir * e.speed
+		"charger":
+			return _charger_move(e, delta, dir, dist)
+	return dir * e.speed
+
+
+func _bulb_explode(e: Enemy) -> void:
+	e.dead = true
+	e.visible = false
+	var pos := e.position
+	if pos.distance_to(player.position) < Enemy.BOMB_RADIUS + Player.RADIUS - 4.0:
+		_hurt_player(e.damage, T.t(str(GameData.ENEMIES[e.kind].name)))
+	add_fx(Fx.ring(pos, Color(1.0, 0.5, 0.3), Enemy.BOMB_RADIUS * 0.9, 0.35))
+	add_fx(Fx.puff(pos, Color(1.0, 0.6, 0.3), 26.0))
+	Sfx.play("mine", 0.1)
+	shake(2.5, 0.12)
+
+
+## 돌진 호박: 걸어오다가 멈춰서 조준선을 보여 준 뒤 달려들고, 끝나면 지쳐서 잠시 쓰러져 있다
+func _charger_move(e: Enemy, delta: float, dir: Vector2, dist: float) -> Vector2:
+	match e.charge_state:
+		0:
+			e.charge_t -= delta
+			if e.charge_t <= 0.0 and dist < 380.0 and e.stun <= 0.0:
+				e.charge_state = 1
+				e.charge_t = 0.75
+				e.charge_dir = dir
+				e.queue_redraw()
+				add_fx(Fx.beam(e.position, dir.angle(), 380.0, e.radius * 1.6, Color(1.0, 0.5, 0.2, 0.55), 0.75, true))
+			return dir * e.speed
+		1:
+			if e.stun <= 0.0:
+				e.charge_t -= delta
+			if e.charge_t <= 0.0:
+				e.charge_state = 2
+				e.charge_t = 0.5
+			return Vector2.ZERO
+	e.charge_t -= delta
+	if e.charge_t <= 0.0:
+		e.charge_state = 0
+		e.charge_t = randf_range(4.0, 6.0)
+		e.stun = maxf(e.stun, 0.9)
+		e.queue_redraw()
+	return e.charge_dir * 430.0
+
+
+# ─────────────────────────────────────────────
+# 위험 지대와 스테이지 환경
+# ─────────────────────────────────────────────
+func add_hazard(h: Hazard) -> void:
+	if hazards.size() >= MAX_HAZARDS:
+		h.free()
+		return
+	world.add_child(h)
+	hazards.append(h)
+
+
+## 위험 지대가 주는 피해: 적과 같은 배율로 커진다
+func _hazard_damage(base: float) -> float:
+	return base * float(risk.damage) * float(stage.mul.damage) * (1.0 + time / GameData.DAMAGE_TIME_SCALE)
+
+
+func _update_hazards(delta: float) -> void:
+	for h in hazards:
+		if h.dead:
+			continue
+		h.step(delta)
+		match h.kind:
+			"thorns":
+				if h.just_fired:
+					h.just_fired = false
+					if h.contains(player.position, Player.RADIUS - 4.0):
+						_hurt_player(h.damage, T.t(h.source))
+					shake(2.0, 0.08)
+			"spore":
+				if h.tick <= 0.0 and h.contains(player.position, Player.RADIUS - 6.0):
+					h.tick = 0.5
+					_hurt_player(h.damage, T.t(h.source))
+
+
+func _in_puddle(pos: Vector2) -> bool:
+	for h in hazards:
+		if h.kind == "puddle" and not h.dead and h.contains(pos):
+			return true
+	return false
+
+
+func _init_env() -> void:
+	_env_next.clear()
+	for entry: Dictionary in stage.env:
+		var nxt := float(entry.first)
+		while nxt < time:
+			nxt += float(entry.every)
+		_env_next.append(nxt)
+
+
+func _run_env() -> void:
+	var env: Array = stage.env
+	for i in env.size():
+		if time < float(_env_next[i]):
+			continue
+		var entry: Dictionary = env[i]
+		_env_next[i] = time + float(entry.every)
+		match str(entry.type):
+			"thorns":
+				if not final_boss_spawned:
+					_env_thorns(int(entry.count) + int(time / 200.0))
+			"puddle":
+				_env_puddles(int(entry.count))
+
+
+## 플레이어 주변에 가시 덩굴이 솟을 자리를 미리 보여 준다. 첫 번째는 걸어가는 방향 앞쪽이다.
+func _env_thorns(n: int) -> void:
+	if not _env_seen.has("thorns"):
+		_env_seen["thorns"] = true
+		hud.show_banner("가시 덩굴이 솟는다! 표시된 자리를 피하세요", Color(1.0, 0.85, 0.35))
+	for i in n:
+		var pos := player.position + player.dir * 80.0
+		if i > 0:
+			pos = player.position + Vector2.from_angle(randf() * TAU) * randf_range(50.0, 260.0)
+		add_hazard(Hazard.thorns(pos, 55.0, 1.2, _hazard_damage(12.0), "가시 덩굴"))
+
+
+func _env_puddles(n: int) -> void:
+	if not _env_seen.has("puddle"):
+		_env_seen["puddle"] = true
+		hud.show_banner("스프링클러 작동! 물웅덩이 위의 적은 전기에 약합니다", Color(0.6, 0.85, 1.0))
+	for _i in n:
+		var pos := player.position + Vector2.from_angle(randf() * TAU) * randf_range(90.0, 360.0)
+		add_hazard(Hazard.puddle(pos, 85.0, 12.0))
+
+
+## 나무 보스의 뿌리 공격: 플레이어가 서 있는 자리와 그 주변에 가시가 솟는다
+func _root_strike(n: int) -> void:
+	for i in n:
+		var pos := player.position
+		if i > 0:
+			pos += Vector2.from_angle(randf() * TAU) * randf_range(40.0, 240.0)
+		add_hazard(Hazard.thorns(pos, 58.0, 1.25, _hazard_damage(18.0), "뿌리 가시"))
+	Sfx.play("warning", 0.05)
+
+
+
+func _enemy_ring(pos: Vector2, n: int, speed: float, dmg: float, offset: float, src: String, col: Color = Color(1.0, 0.3, 0.45)) -> void:
 	for i in n:
 		var a := offset + TAU * float(i) / float(n)
-		add_shot(EnemyShot.make(pos, Vector2.from_angle(a) * speed, dmg, Color(1.0, 0.3, 0.45), 7.0, src))
+		add_shot(EnemyShot.make(pos, Vector2.from_angle(a) * speed, dmg, col, 7.0, src))
 
 
 func add_shot(s: EnemyShot) -> void:
@@ -695,6 +953,16 @@ func _update_shots(delta: float) -> void:
 func damage_enemy(e: Enemy, dmg: float, weapon: Weapon, dir: Vector2, kb: float, apply_element: bool = true, num_color: Color = Color.WHITE) -> void:
 	if e.dead:
 		return
+	if weapon != null:
+		var mul := GameData.element_mul(e.kind, weapon.element)
+		if weapon.element == "shock" and _in_puddle(e.position):
+			mul *= PUDDLE_SHOCK_MUL
+		dmg *= mul
+		if num_color == Color.WHITE:
+			if mul > 1.01:
+				num_color = Color(1.0, 0.78, 0.3)
+			elif mul < 0.99:
+				num_color = Color(0.62, 0.7, 0.82)
 	e.hp -= dmg
 	if e.flash <= 0.0:
 		e.queue_redraw()
@@ -888,7 +1156,7 @@ func _kill_enemy(e: Enemy) -> void:
 	var big := e.elite or e.boss != ""
 	Sfx.play("kill", 0.12)
 	add_fx(Fx.puff(e.position, e.color, e.radius * (2.4 if big else 1.6)))
-	if e.boss == "core":
+	if GameData.ENEMIES[e.kind].get("final", false):
 		add_fx(Fx.ring(e.position, Color(1, 0.8, 0.4), 260.0, 0.8))
 		shake(10.0, 0.5)
 		_finish(true)
@@ -900,6 +1168,8 @@ func _kill_enemy(e: Enemy) -> void:
 		hud.show_banner(T.f("%s 격파!", [T.t(str(GameData.ENEMIES[e.kind].name))]), Color(1, 0.85, 0.3))
 		shake(8.0, 0.4)
 		return
+	if GameData.ENEMIES[e.kind].get("on_death", "") == "spore":
+		add_hazard(Hazard.spore(e.position, e.radius * 4.2, 4.5, e.damage * 0.55, "버섯 포자"))
 	spawn_gem(e.position, e.xp)
 	if e.elite:
 		spawn_chest(e.position + Vector2(0, 8), 1)
@@ -1219,6 +1489,7 @@ func _cleanup() -> void:
 	_purge(projectiles)
 	_purge(gems)
 	_purge(shots)
+	_purge(hazards)
 	_purge(chests)
 	_purge(pickups)
 	_purge(props)
@@ -1381,8 +1652,8 @@ func _finish(won: bool) -> void:
 	state = State.WON if won else State.DEAD
 	hud.hide_levelup()
 	hud.hide_chest()
-	reward = GameData.run_reward(gold, kills, time, won, risk_tier)
-	new_record = SaveData.record_run(time, kills, player.level, reward, won, risk_tier)
+	reward = GameData.run_reward(gold, kills, time, won, risk_tier, float(stage.gold))
+	new_record = SaveData.record_run(time, kills, player.level, reward, won, risk_tier, stage_id)
 	Sfx.stop_music()
 	Sfx.play("victory" if won else "death")
 	hud.show_gameover(won, _summary_text())
@@ -1408,6 +1679,7 @@ func _status_text() -> String:
 
 func _summary_text() -> String:
 	var lines: PackedStringArray = []
+	lines.append(T.f("스테이지   %s", [T.t(str(stage.name))]))
 	if risk_tier > 0:
 		lines.append(T.f("위험도   %d", [risk_tier]))
 	lines.append(T.f("생존 시간   %s", [Util.fmt_time(time)]))

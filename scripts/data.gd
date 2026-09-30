@@ -367,13 +367,28 @@ const ENEMIES := {
 	"jelly": {"name": "말랑 젤리", "hp": 9.0, "speed": 42.0, "damage": 5.0, "radius": 11.0, "xp": 1, "kb_resist": 0.1, "color": Color(0.5, 0.85, 0.5)},
 	"drone": {"name": "정찰 드론", "hp": 18.0, "speed": 58.0, "damage": 6.0, "radius": 11.0, "xp": 2, "kb_resist": 0.2, "color": Color(0.65, 0.72, 0.85)},
 	"bubble": {"name": "둥둥 버블", "hp": 12.0, "speed": 100.0, "damage": 5.0, "radius": 10.0, "xp": 2, "kb_resist": 0.0, "color": Color(1.0, 0.7, 0.85)},
-	"turret": {"name": "포탑 봇", "hp": 30.0, "speed": 52.0, "damage": 5.0, "radius": 11.0, "xp": 4, "kb_resist": 0.3, "color": Color(1.0, 0.65, 0.3), "ranged": true},
+	"turret": {"name": "포탑 봇", "hp": 30.0, "speed": 52.0, "damage": 5.0, "radius": 11.0, "xp": 4, "kb_resist": 0.3, "color": Color(1.0, 0.65, 0.3), "ranged": true, "swap": "drone"},
 	"hound": {"name": "로봇 멍멍이", "hp": 55.0, "speed": 88.0, "damage": 9.0, "radius": 13.0, "xp": 6, "kb_resist": 0.4, "color": Color(0.55, 0.85, 0.85)},
 	"cube": {"name": "박스 로봇", "hp": 110.0, "speed": 32.0, "damage": 12.0, "radius": 18.0, "xp": 10, "kb_resist": 0.85, "color": Color(0.55, 0.62, 0.75)},
 	# 보스
 	"jellyking": {"name": "젤리 킹", "hp": 5500.0, "speed": 72.0, "damage": 20.0, "radius": 26.0, "xp": 200, "kb_resist": 0.97, "color": Color(0.45, 0.9, 0.65), "boss": "jellyking"},
-	"core": {"name": "폭주 메인 컴퓨터", "hp": 30000.0, "speed": 66.0, "damage": 30.0, "radius": 36.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.8, 0.3, 0.5), "boss": "core"},
+	"core": {"name": "폭주 메인 컴퓨터", "hp": 30000.0, "speed": 66.0, "damage": 30.0, "radius": 36.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.8, 0.3, 0.5), "boss": "core", "final": true},
+
+	# ── 온실 구역 ──
+	# weak/resist: 해당 속성 무기에게 받는 피해가 늘거나 줄어든다 / move: 특수한 움직임 / pattern: 원거리 탄 모양
+	"sprout": {"name": "새싹이", "hp": 5.0, "speed": 80.0, "damage": 4.0, "radius": 9.0, "xp": 1, "kb_resist": 0.0, "color": Color(0.55, 0.85, 0.4), "weak": ["heat"]},
+	"bee": {"name": "꿀벌 드론", "hp": 7.0, "speed": 118.0, "damage": 4.0, "radius": 8.0, "xp": 1, "kb_resist": 0.0, "color": Color(1.0, 0.85, 0.3), "weak": ["cold"], "move": "zigzag"},
+	"mushroom": {"name": "포자 버섯", "hp": 45.0, "speed": 34.0, "damage": 7.0, "radius": 14.0, "xp": 5, "kb_resist": 0.5, "color": Color(0.92, 0.5, 0.62), "weak": ["heat"], "resist": ["gel"], "on_death": "spore"},
+	"bulb": {"name": "폭탄 열매", "hp": 14.0, "speed": 105.0, "damage": 22.0, "radius": 10.0, "xp": 3, "kb_resist": 0.0, "color": Color(1.0, 0.55, 0.3), "weak": ["cold"], "move": "bomber"},
+	"sunflower": {"name": "해바라기 사수", "hp": 42.0, "speed": 46.0, "damage": 6.0, "radius": 12.0, "xp": 5, "kb_resist": 0.3, "color": Color(1.0, 0.85, 0.25), "weak": ["shock"], "resist": ["heat"], "ranged": true, "pattern": "fan", "swap": "sprout"},
+	"pumpkin": {"name": "돌진 호박", "hp": 150.0, "speed": 38.0, "damage": 15.0, "radius": 17.0, "xp": 10, "kb_resist": 0.8, "color": Color(1.0, 0.6, 0.2), "move": "charger"},
+	"queenbee": {"name": "여왕벌", "hp": 7500.0, "speed": 78.0, "damage": 22.0, "radius": 26.0, "xp": 250, "kb_resist": 0.97, "color": Color(1.0, 0.82, 0.25), "boss": "queenbee"},
+	"greentree": {"name": "폭주 온실 나무", "hp": 42000.0, "speed": 40.0, "damage": 30.0, "radius": 40.0, "xp": 0, "kb_resist": 1.0, "color": Color(0.35, 0.7, 0.4), "boss": "greentree", "final": true},
 }
+
+# 약점 속성은 피해가 늘고, 저항 속성은 줄어든다
+const WEAK_MUL := 1.35
+const RESIST_MUL := 0.7
 
 # 분(minute)별 웨이브: 등장 적 종류 / 초당 스폰 수 / 최대 동시 적 수
 const WAVES := [
@@ -412,6 +427,72 @@ const EVENTS := [
 	{"time": 540.0, "type": "elite", "count": 3},
 	{"time": 560.0, "type": "ring", "enemy": "cube", "count": 24, "text": "박스 로봇들이 행진한다!"},
 	{"time": 600.0, "type": "boss", "enemy": "core"},
+]
+
+# ── 온실 구역 웨이브와 이벤트 ──
+const WAVES_GREENHOUSE := [
+	{"types": ["sprout", "sprout", "bee"], "rate": 1.6, "max": 70},
+	{"types": ["sprout", "bee", "sprout", "mushroom"], "rate": 2.6, "max": 100},
+	{"types": ["sprout", "bee", "mushroom", "bulb"], "rate": 3.4, "max": 130},
+	{"types": ["bee", "bulb", "mushroom", "sprout", "sunflower"], "rate": 4.2, "max": 160},
+	{"types": ["bulb", "sunflower", "mushroom", "bee", "pumpkin"], "rate": 5.0, "max": 190},
+	{"types": ["pumpkin", "bulb", "sunflower", "bee", "sprout"], "rate": 5.8, "max": 230},
+	{"types": ["pumpkin", "bulb", "sunflower", "mushroom", "bee"], "rate": 6.8, "max": 270},
+	{"types": ["pumpkin", "bee", "bulb", "sunflower", "mushroom"], "rate": 8.0, "max": 310},
+	{"types": ["pumpkin", "bulb", "bee", "sunflower", "mushroom"], "rate": 9.2, "max": 350},
+	{"types": ["pumpkin", "bulb", "bee", "sunflower", "sprout"], "rate": 10.8, "max": 390},
+]
+
+const EVENTS_GREENHOUSE := [
+	{"time": 50.0, "type": "elite", "count": 1},
+	{"time": 85.0, "type": "elite", "count": 1},
+	{"time": 95.0, "type": "ring", "enemy": "bee", "count": 34, "text": "꿀벌 떼가 몰려온다!"},
+	{"time": 120.0, "type": "elite", "count": 1},
+	{"time": 150.0, "type": "elite", "count": 1},
+	{"time": 165.0, "type": "stream", "enemy": "sprout", "count": 46},
+	{"time": 190.0, "type": "elite", "count": 2},
+	{"time": 230.0, "type": "ring", "enemy": "bulb", "count": 26, "text": "폭탄 열매가 굴러온다!"},
+	{"time": 250.0, "type": "elite", "count": 2},
+	{"time": 300.0, "type": "boss", "enemy": "queenbee"},
+	{"time": 350.0, "type": "ring", "enemy": "sprout", "count": 60, "text": "새싹들이 돋아난다!"},
+	{"time": 380.0, "type": "elite", "count": 2},
+	{"time": 410.0, "type": "stream", "enemy": "bee", "count": 40},
+	{"time": 450.0, "type": "elite", "count": 3},
+	{"time": 470.0, "type": "ring", "enemy": "mushroom", "count": 30, "text": "버섯 포자밭에 갇혔다!"},
+	{"time": 520.0, "type": "stream", "enemy": "bulb", "count": 34},
+	{"time": 540.0, "type": "elite", "count": 3},
+	{"time": 565.0, "type": "ring", "enemy": "pumpkin", "count": 20, "text": "호박들이 굴러온다!"},
+	{"time": 600.0, "type": "boss", "enemy": "greentree"},
+]
+
+# ── 스테이지 ────────────────────────────────
+# bg: 배경 종류 / mul: 이 스테이지 적의 추가 배율 / gold: 보상 배율 / env: 스테이지 고유 위험(가시 덩굴)과 지형(물웅덩이)
+# 앞 스테이지를 한 번이라도 클리어해야 다음 스테이지가 열린다
+const STAGES := [
+	{
+		"id": "station", "name": "중앙 정거장", "bg": "station",
+		"desc": "청소 대원들이 처음 도착한 정거장. 사고로 폭주한 로봇과 젤리가 돌아다닙니다.",
+		"goal": "10분에 나타나는 폭주 메인 컴퓨터를 쓰러뜨리세요.",
+		"tip": "속성 반응을 익히기 좋은 곳입니다.",
+		"enemies": ["moth", "jelly", "drone", "bubble", "turret", "hound", "cube"],
+		"mul": {"hp": 1.0, "count": 1.0, "damage": 1.0}, "gold": 1.0,
+		"waves": WAVES, "events": EVENTS, "env": [],
+		"mid_boss": "jellyking", "final": "core",
+	},
+	{
+		"id": "greenhouse", "name": "온실 구역", "bg": "greenhouse",
+		"desc": "정거장 안쪽의 식물원. 폭주한 온실에서 식물과 벌레들이 마구 자라났습니다.",
+		"goal": "10분에 나타나는 폭주 온실 나무를 쓰러뜨리세요.",
+		"tip": "식물은 열에 약합니다. 가시 덩굴이 솟는 자리는 미리 표시되고, 물웅덩이 위의 적은 전기에 더 크게 다칩니다.",
+		"enemies": ["sprout", "bee", "mushroom", "bulb", "sunflower", "pumpkin"],
+		"mul": {"hp": 1.5, "count": 1.15, "damage": 1.25}, "gold": 1.5,
+		"waves": WAVES_GREENHOUSE, "events": EVENTS_GREENHOUSE,
+		"env": [
+			{"type": "thorns", "first": 40.0, "every": 20.0, "count": 3},
+			{"type": "puddle", "first": 22.0, "every": 34.0, "count": 3},
+		],
+		"mid_boss": "queenbee", "final": "greentree",
+	},
 ]
 
 # ── 캐릭터 ──────────────────────────────────
@@ -500,9 +581,9 @@ static func shop_cost(item: Dictionary, level: int) -> int:
 
 
 ## 한 판이 끝났을 때 받는 골드: 주운 동전 + 처치 수 + 생존 시간 + 승리 보너스
-static func run_reward(coins: int, kills: int, time: float, won: bool, tier: int = 0) -> int:
+static func run_reward(coins: int, kills: int, time: float, won: bool, tier: int = 0, stage_mul: float = 1.0) -> int:
 	var base := coins + int(kills / 5.0) + int(time / 60.0) * 15 + (500 if won else 0)
-	return int(round(float(base) * float(RISK_TIERS[clampi(tier, 0, RISK_TIERS.size() - 1)].gold)))
+	return int(round(float(base) * float(RISK_TIERS[clampi(tier, 0, RISK_TIERS.size() - 1)].gold) * stage_mul))
 
 
 static func risk(tier: int) -> Dictionary:
@@ -521,8 +602,35 @@ static func element_name(element: String) -> String:
 	return T.t("없음")
 
 
-static func wave_for(time: float) -> Dictionary:
-	return WAVES[mini(WAVES.size() - 1, int(time / 60.0))]
+static func wave_for(time: float, stage_id: String = "station") -> Dictionary:
+	var waves: Array = stage(stage_id).waves
+	return waves[mini(waves.size() - 1, int(time / 60.0))]
+
+
+static func stage(id: String) -> Dictionary:
+	for st: Dictionary in STAGES:
+		if st.id == id:
+			return st
+	return STAGES[0]
+
+
+static func stage_index(id: String) -> int:
+	for i in STAGES.size():
+		if STAGES[i].id == id:
+			return i
+	return 0
+
+
+## 이 종류의 적이 해당 속성 무기에게 받는 피해 배율
+static func element_mul(enemy_kind: String, element: String) -> float:
+	if element == "":
+		return 1.0
+	var d: Dictionary = ENEMIES[enemy_kind]
+	if element in d.get("weak", []):
+		return WEAK_MUL
+	if element in d.get("resist", []):
+		return RESIST_MUL
+	return 1.0
 
 
 ## 레벨업에 필요한 경험치

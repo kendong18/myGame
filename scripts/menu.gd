@@ -1,5 +1,5 @@
 extends Node2D
-## 타이틀 / 캐릭터 선택 / 강화 상점 / 게임 방법 / 설정 / 조작 키 / 크레딧 화면
+## 타이틀 / 스테이지 선택 / 캐릭터 선택 / 강화 상점 / 게임 방법 / 설정 / 조작 키 / 크레딧 화면
 
 const GAME_SCENE := "res://scenes/main.tscn"
 
@@ -11,6 +11,8 @@ var _root: Control
 var _screens: Dictionary = {}
 var _title_info: Label
 var _select_grid: GridContainer
+var _stage_grid: GridContainer
+var _select_stage: Label
 var _select_gold: Label
 var _risk_prev: Button
 var _risk_next: Button
@@ -26,7 +28,7 @@ var _licenses_text: RichTextLabel
 var _licenses_built := false
 
 # 뒤로 갈 때 돌아가는 화면 (없으면 타이틀)
-const PARENT := {"keys": "settings", "licenses": "credits"}
+const PARENT := {"keys": "settings", "licenses": "credits", "select": "stage"}
 
 
 func _ready() -> void:
@@ -39,6 +41,7 @@ func _ready() -> void:
 	ui.add_child(_root)
 
 	_build_title()
+	_build_stage()
 	_build_select()
 	_build_shop()
 	_build_howto()
@@ -108,6 +111,8 @@ func _show(screen: String) -> void:
 	match screen:
 		"title":
 			_refresh_title()
+		"stage":
+			_rebuild_stage()
 		"select":
 			_rebuild_select()
 		"shop":
@@ -252,7 +257,7 @@ func _build_title() -> void:
 	v.add_child(Control.new())
 
 	for entry in [
-		["게임 시작", func() -> void: _show("select"), true],
+		["게임 시작", func() -> void: _show("stage"), true],
 		["강화 상점", func() -> void: _show("shop"), false],
 		["게임 방법", func() -> void: _show("howto"), false],
 		["설정", func() -> void: _show("settings"), false],
@@ -273,11 +278,112 @@ func _build_title() -> void:
 func _refresh_title() -> void:
 	var b: Dictionary = SaveData.best
 	var text := T.f("보유 골드  %d", [SaveData.gold])
-	if SaveData.cleared_tier >= 0:
-		text += "  ·  " + T.f("클리어한 최고 위험도  %d", [SaveData.cleared_tier])
+	if SaveData.best_cleared_tier() >= 0:
+		text += "  ·  " + T.f("클리어한 최고 위험도  %d", [SaveData.best_cleared_tier()])
 	if SaveData.runs > 0:
 		text += "\n" + T.f("최고 기록  %s  ·  최다 처치  %d  ·  승리 %d회", [Util.fmt_time(float(b.time)), int(b.kills), SaveData.wins])
 	_title_info.text = text
+
+
+# ─────────────────────────────────────────────
+# 스테이지 선택
+# ─────────────────────────────────────────────
+func _build_stage() -> void:
+	var s := _new_screen("stage", 0.8)
+	var v := UiTheme.centered_panel(s, 940.0)
+	var title := UiTheme.label("스테이지 선택", 34, Color(1, 0.88, 0.5))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(title)
+	var hint := UiTheme.label("앞 스테이지의 최종 보스를 쓰러뜨리면 다음 스테이지가 열립니다.", 15, Color(0.75, 0.72, 0.9), 2)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(hint)
+	_stage_grid = GridContainer.new()
+	_stage_grid.columns = 2
+	_stage_grid.add_theme_constant_override("h_separation", 14)
+	_stage_grid.add_theme_constant_override("v_separation", 14)
+	v.add_child(_scroll_area(_stage_grid, 250.0))
+	var wrap := CenterContainer.new()
+	wrap.add_child(_button("뒤로", _go_back, false, 160.0))
+	v.add_child(wrap)
+
+
+func _rebuild_stage() -> void:
+	_clear_children(_stage_grid)
+	for st: Dictionary in GameData.STAGES:
+		_stage_grid.add_child(_make_stage_card(st))
+	_focus_item.call_deferred("stage", SaveData.selected_stage)
+
+
+func _make_stage_card(st: Dictionary) -> Control:
+	var id := str(st.id)
+	var unlocked := SaveData.is_stage_unlocked(id)
+	var selected := SaveData.selected_stage == id
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(430, 0)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var border := Color(1.0, 0.8, 0.3) if selected else Color(0.3, 0.24, 0.46)
+	card.add_theme_stylebox_override("panel", UiTheme.box(Color(0.12, 0.09, 0.22), border, 10, 3 if selected else 2))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	card.add_child(v)
+
+	var prev := StagePreview.new()
+	prev.stage_id = id
+	prev.locked = not unlocked
+	var pw := CenterContainer.new()
+	pw.add_child(prev)
+	v.add_child(pw)
+
+	var nm := UiTheme.label(T.t(str(st.name)), 24, Color(1, 0.95, 0.85), 3)
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(nm)
+	var desc := UiTheme.label(T.t(str(st.desc)), 14, Color(0.78, 0.75, 0.92), 2)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(380, 40)
+	v.add_child(desc)
+	if unlocked:
+		var names: PackedStringArray = []
+		for k: String in st.enemies:
+			names.append(T.t(str(GameData.ENEMIES[k].name)))
+		var foes := UiTheme.label(T.f("등장하는 적  %s", [" · ".join(names)]), 13, Color(1, 0.85, 0.5), 2)
+		foes.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		foes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		foes.custom_minimum_size = Vector2(380, 40)
+		v.add_child(foes)
+		var tip := UiTheme.label(T.t(str(st.tip)), 13, Color(0.6, 0.95, 0.8), 2)
+		tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tip.custom_minimum_size = Vector2(380, 60)
+		v.add_child(tip)
+	var status_text := T.t("앞 스테이지를 클리어하면 열립니다.")
+	if unlocked:
+		var ct := SaveData.cleared_tier_of(id)
+		status_text = T.f("클리어한 최고 위험도  %d", [ct]) if ct >= 0 else T.t("아직 클리어하지 못했습니다.")
+	var status := UiTheme.label(status_text, 14, Color(1.0, 0.9, 0.5) if unlocked else Color(0.7, 0.66, 0.85), 2)
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(status)
+
+	var b: Button
+	if unlocked:
+		b = _button("선택", func() -> void: _pick_stage(id), true, 200.0)
+	else:
+		b = _button("잠김", func() -> void: pass, false, 200.0)
+		b.disabled = true
+	b.custom_minimum_size = Vector2(200, 42)
+	b.set_meta("focus_id", id)
+	var bw := CenterContainer.new()
+	bw.add_child(b)
+	v.add_child(bw)
+	return card
+
+
+func _pick_stage(id: String) -> void:
+	SaveData.selected_stage = id
+	SaveData.risk_tier = clampi(SaveData.risk_tier, 0, SaveData.max_tier())
+	SaveData.save()
+	Sfx.play("select")
+	_show("select")
 
 
 # ─────────────────────────────────────────────
@@ -289,6 +395,9 @@ func _build_select() -> void:
 	var title := UiTheme.label("캐릭터 선택", 34, Color(1, 0.88, 0.5))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
+	_select_stage = UiTheme.label("", 18, Color(0.7, 0.95, 0.75), 3)
+	_select_stage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_select_stage)
 	_select_gold = UiTheme.label("", 18, Color(1, 0.9, 0.35), 3)
 	_select_gold.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(_select_gold)
@@ -342,13 +451,14 @@ func _refresh_risk() -> void:
 			roundi((float(r.hp) - 1.0) * 100.0), roundi((float(r.count) - 1.0) * 100.0),
 			roundi((float(r.damage) - 1.0) * 100.0), roundi((float(r.gold) - 1.0) * 100.0)])
 	if tier >= SaveData.max_tier() and tier < GameData.RISK_TIERS.size() - 1:
-		text += "\n" + T.t("마왕을 쓰러뜨리면 다음 위험도가 열립니다.")
+		text += "\n" + T.t("이 스테이지의 최종 보스를 쓰러뜨리면 다음 위험도가 열립니다.")
 	_risk_desc.text = text
 	_risk_prev.disabled = tier <= 0
 	_risk_next.disabled = tier >= SaveData.max_tier()
 
 
 func _rebuild_select(focus_id: String = "") -> void:
+	_select_stage.text = T.f("스테이지  %s", [T.t(str(GameData.stage(SaveData.selected_stage).name))])
 	_select_gold.text = T.f("보유 골드  %d", [SaveData.gold])
 	_refresh_risk()
 	_clear_children(_select_grid)
@@ -517,8 +627,9 @@ func _build_howto() -> void:
 		["진화", "무기를 8레벨까지 올리고 짝이 되는 아이템을 가진 채 보급 상자를 열면 진화합니다."],
 		["보급 상자", "금빛 테두리의 엘리트 적과 보스가 떨어뜨립니다."],
 		["보급 캡슐", "부수면 배터리, 자석, 펄스탄, 동전이 나옵니다."],
-		["목표", "10분에 나타나는 폭주 메인 컴퓨터를 쓰러뜨리면 승리합니다."],
-		["위험도", "마왕을 처음 쓰러뜨리면 다음 위험도가 열립니다. 높을수록 적이 강해지고 보상이 늘어납니다."],
+		["목표", "10분에 나타나는 스테이지의 최종 보스를 쓰러뜨리면 승리합니다."],
+		["스테이지", "앞 스테이지를 클리어하면 다음 스테이지가 열립니다. 스테이지마다 적과 지형이 다르고, 적에게는 약한 속성이 있습니다."],
+		["위험도", "스테이지마다 최종 보스를 처음 쓰러뜨리면 다음 위험도가 열립니다. 높을수록 적이 강해지고 보상이 늘어납니다."],
 		["기타", "ESC 또는 P: 일시정지 / F11: 전체 화면"],
 	])
 	var list := VBoxContainer.new()

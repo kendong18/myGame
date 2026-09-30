@@ -10,7 +10,8 @@ var best := {"time": 0.0, "kills": 0, "level": 0}
 var wins := 0
 var runs := 0
 var selected_char := "coco"
-var cleared_tier := -1          # 마왕을 쓰러뜨린 가장 높은 위험도 (-1 이면 아직 없음)
+var cleared: Dictionary = {}     # 스테이지 아이디 -> 최종 보스를 쓰러뜨린 가장 높은 위험도 (기록이 없으면 아직 클리어 전)
+var selected_stage := "station"
 var risk_tier := 0              # 다음 판에 도전할 위험도
 var settings := {
 	"sfx": 0.8, "music": 0.5,
@@ -38,6 +39,12 @@ func _ready() -> void:
 				gold = int(a.substr(7))
 			elif a.begins_with("--lang="):
 				settings["language"] = a.substr(7)    # 테스트 전용: ko 또는 en
+			elif a.begins_with("--cleared="):
+				# 테스트 전용: --cleared=station:0,greenhouse:2 처럼 클리어 기록을 지정
+				for entry in a.substr(10).split(","):
+					var kv := entry.split(":")
+					if kv.size() == 2:
+						cleared[kv[0]] = int(kv[1])
 	apply_window()
 	InputSetup.apply()
 	Lang.setup()
@@ -52,17 +59,32 @@ func load_data() -> void:
 	var parsed: Variant = JSON.parse_string(f.get_as_text())
 	if not (parsed is Dictionary):
 		return
-	var d: Dictionary = parsed
+	apply_dict(parsed)
+
+
+## 저장 파일에서 읽은 내용을 적용한다 (옛 버전의 저장 파일도 여기서 새 형식으로 바꾼다)
+func apply_dict(d: Dictionary) -> void:
 	gold = int(d.get("gold", 0))
 	upgrades = d.get("upgrades", {})
 	unlocked = d.get("unlocked", ["coco", "miyu"])
 	wins = int(d.get("wins", 0))
 	runs = int(d.get("runs", 0))
 	selected_char = str(d.get("selected_char", "coco"))
-	cleared_tier = int(d.get("cleared_tier", -1))
-	# 위험도 기능이 생기기 전에 이미 승리한 기록이 있으면 기본 난이도를 클리어한 것으로 본다
-	if not d.has("cleared_tier") and wins > 0:
-		cleared_tier = 0
+	var saved_cleared: Variant = d.get("cleared", null)
+	if saved_cleared is Dictionary:
+		for k: String in saved_cleared:
+			if GameData.STAGES.any(func(st: Dictionary) -> bool: return st.id == k):
+				cleared[k] = int(saved_cleared[k])
+	else:
+		# 스테이지가 생기기 전 저장 파일: 예전 위험도 기록은 첫 스테이지의 기록이다
+		var old_tier := int(d.get("cleared_tier", -1))
+		if not d.has("cleared_tier") and wins > 0:
+			old_tier = 0    # 위험도 기능도 없던 시절에 이미 승리한 기록이 있으면 기본 난이도를 클리어한 것으로 본다
+		if old_tier >= 0:
+			cleared["station"] = old_tier
+	selected_stage = str(d.get("selected_stage", "station"))
+	if not is_stage_unlocked(selected_stage):
+		selected_stage = "station"
 	risk_tier = clampi(int(d.get("risk_tier", 0)), 0, max_tier())
 	# 예전 버전의 캐릭터 아이디가 남아 있으면 정리
 	unlocked = unlocked.filter(func(id: Variant) -> bool: return GameData.is_valid_character(str(id)))
@@ -88,7 +110,7 @@ func save() -> void:
 	f.store_string(JSON.stringify({
 		"gold": gold, "upgrades": upgrades, "unlocked": unlocked, "best": best,
 		"wins": wins, "runs": runs, "selected_char": selected_char, "settings": settings,
-		"cleared_tier": cleared_tier, "risk_tier": risk_tier,
+		"cleared": cleared, "selected_stage": selected_stage, "risk_tier": risk_tier,
 	}, "\t"))
 
 
@@ -140,9 +162,31 @@ func refund_all() -> int:
 	return total
 
 
-## 지금 고를 수 있는 가장 높은 위험도 (한 단계 위까지 열려 있다)
-func max_tier() -> int:
-	return mini(GameData.RISK_TIERS.size() - 1, cleared_tier + 1)
+## 그 스테이지에서 클리어한 가장 높은 위험도 (-1 이면 아직 클리어 전)
+func cleared_tier_of(stage_id: String) -> int:
+	return int(cleared.get(stage_id, -1))
+
+
+## 지금 고를 수 있는 가장 높은 위험도 (한 단계 위까지 열려 있다). stage_id 를 안 주면 고른 스테이지 기준
+func max_tier(stage_id: String = "") -> int:
+	var id := selected_stage if stage_id == "" else stage_id
+	return mini(GameData.RISK_TIERS.size() - 1, cleared_tier_of(id) + 1)
+
+
+## 첫 스테이지는 처음부터 열려 있고, 그 다음부터는 바로 앞 스테이지를 한 번 클리어해야 열린다
+func is_stage_unlocked(stage_id: String) -> bool:
+	var idx := GameData.stage_index(stage_id)
+	if GameData.STAGES[idx].id != stage_id:
+		return false
+	return idx == 0 or cleared_tier_of(str(GameData.STAGES[idx - 1].id)) >= 0
+
+
+## 어느 스테이지든 클리어한 가장 높은 위험도
+func best_cleared_tier() -> int:
+	var best_tier := -1
+	for k: String in cleared:
+		best_tier = maxi(best_tier, int(cleared[k]))
+	return best_tier
 
 
 func is_unlocked(id: String) -> bool:
@@ -162,11 +206,11 @@ func unlock_char(ch: Dictionary) -> bool:
 
 
 ## 한 판 결과 기록. 새 기록이면 true 반환
-func record_run(time: float, kills: int, level: int, reward: int, won: bool, tier: int = 0) -> bool:
+func record_run(time: float, kills: int, level: int, reward: int, won: bool, tier: int = 0, stage_id: String = "station") -> bool:
 	runs += 1
 	if won:
 		wins += 1
-		cleared_tier = maxi(cleared_tier, tier)
+		cleared[stage_id] = maxi(cleared_tier_of(stage_id), tier)
 	gold += reward
 	var record := time > float(best.time)
 	if record:
